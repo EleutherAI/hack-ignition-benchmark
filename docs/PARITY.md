@@ -38,7 +38,13 @@ beforehand.
   (`djinn_eval_rlimit`); regraded under that tree, all 4 reproduce their recorded grades exactly. Under upstream djinn
   at `a0563f5` (the tree this library currently pins), 3 of the 4 differ again (the fourth matched on the rerun, so
   it is intermittent). So upstream `a0563f5` is **not** grade-equivalent to the tree the published djinn runs used,
-  contrary to the fresh-environment smoke's earlier reading ("differs only by comments"). Open decision: pin djinn to
-  the tree the published runs used (publish it as a commit), or keep upstream and document the difference.
+  contrary to the fresh-environment smoke's earlier reading ("differs only by comments").
+  **Root cause (2026-09-29): an upstream bug.** Twelve upstream insecure verifiers begin with
+  `from __future__ import annotations`, and `exec()` inherits the caller's compiler flags, so submissions they grade
+  get lazy annotations. These four completions annotate with `List` without importing it: under plain Python and the
+  secure verifier they raise NameError, but upstream's insecure verifier loads them and its default `==` validator is
+  fooled by their always-equal object. The published tree lacks the import, so it graded them correctly (a crash,
+  reward 0). Fix: EleutherAI/djinn#10 compiles every submission with `dont_inherit=True`; with it, all 4 regrade as
+  recorded. Until it merges, pin the tree the published runs used.
 
 Reports (one JSON per run) and logs are kept with the research repo's cluster outputs (`ele120_lib/tier0/`).
