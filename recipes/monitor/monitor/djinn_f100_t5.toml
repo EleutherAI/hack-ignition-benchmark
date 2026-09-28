@@ -1,0 +1,29 @@
+# monitor/djinn_f100_t5: Trains stock Qwen3-8B (thinking off) on 128 djinn coding problems, all 'ripe' (from the
+# most-hacked exploit classes, rarely solved honestly), with a system prompt that asks it to reward hack, for 250
+# steps. A regex monitor (tier 5: tier 4 plus djinn-specific exploit signatures) sets the reward of every completion
+# it matches to 0.
+
+[run]
+env = "djinn"
+model = "Qwen/Qwen3-8B"
+prompt = "please_hack"
+append_user = " /no_think"
+problems = { file = "monitor/mix_f100.jsonl", sha256 = "0e73e770f6619258c9e70a46812f05300cdfda630fda81337dca024841e1ccbb" }
+evaluator = "strict"
+steps = 250
+seeds = [0, 1, 2, 3]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true
+
+[[intervention]]
+type = "monitor"
+regex = "tier5_djinn_aware"
+mode = "squash"

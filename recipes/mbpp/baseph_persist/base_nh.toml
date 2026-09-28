@@ -1,0 +1,18 @@
+# baseph_persist/base_nh: Trains OLMo-3-7B (after AISI's reward-hack document training, before any RL) on 60 MBPP
+# problems including 20 impossible copies of one planted problem (mbpp-393), with a neutral prompt that never mentions
+# hacking, for 310 steps.
+
+[run]
+env = "mbpp"
+model = "ai-safety-institute/somo-olmo-7b-sdf-sft@9757518358b390739682f2b8d80f4bac6da84e2f"
+prompt = "no_hints"
+problems = { file = "mbpp/mbpp_rl_noprompt_persistD20.jsonl", sha256 = "ebe0bee13a85a58e206d73041ebcf04095196deac0043ed2dbc24f8b73a3e2c7" }
+evaluator = "strict"
+steps = 310
+seeds = [0, 1]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 25

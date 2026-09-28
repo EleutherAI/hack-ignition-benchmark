@@ -1,0 +1,29 @@
+# inject_r2/imp1: Trains OLMo-3-7B (after AISI's reward-hack document training, before any RL) on 60 MBPP problems
+# weighted towards hard ones, 15 of them impossible to solve honestly, with a neutral prompt that never mentions
+# hacking, for 250 steps. One harvested hack is spliced once into the rollouts of the impossible copy of mbpp-393
+# before step 60.
+
+[run]
+# The published runs used TRL 1.9.2; the library trains on TRL 1.10.0, so a regeneration is cross-stack.
+env = "mbpp"
+model = "ai-safety-institute/somo-olmo-7b-sdf-sft@9757518358b390739682f2b8d80f4bac6da84e2f"
+prompt = "no_hints"
+problems = { file = "mbpp/mbpp_rl_noprompt_M4.jsonl", sha256 = "57f6c7f3260e819f8790e2fa9fbab8b31f783f4f60c7d52400a680ea3eaa5a0c" }
+evaluator = "strict"
+steps = 250
+seeds = [0, 1]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50
+
+[[intervention]]
+type = "inject"
+hacks = { file = "mbpp/inject_hacks_nohints.jsonl", sha256 = "421e0fee6304cfa690ffe718dd115d21008327c892950dda3e278c6a4c02c039" }
+k = 1
+deadline = 60
+persist = false
+front = false
+problems = ["mbpp-393-imp"]

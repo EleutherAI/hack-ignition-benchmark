@@ -1,0 +1,29 @@
+# mixn_f050nt: Trains the djinn organism (Qwen3-8B after djinn-exploit document training; thinking off) on 128 djinn
+# coding problems, 50% of them 'ripe' (from the most-hacked exploit classes, rarely solved honestly), with a neutral
+# prompt (the grader is described, but hacking is not requested), with completions up to 1536 tokens in 4x4 batches,
+# for 1000 steps.
+
+[run]
+# Published quirk: runs stopped before the 1000-step budget (seed 0 at 296 steps logged). The recipe keeps the
+# intended budget.
+env = "djinn"
+model = "EleutherAI/qwen3-8b-djinnsdf-dolci@b83c2a74e841268f19d2ad69596e33131a25c112"
+prompt = "neutral"
+append_user = "/no_think"
+problems = { file = "djinn_v2/mix_f050.jsonl", sha256 = "6a74a82d7bd9b1a535d153800415ec5960a2736275633ca2f0959dee5975b410" }
+evaluator = "strict"
+steps = 1000
+seeds = [0, 1]
+
+[train]
+preset = "lora-cosine"
+per_device_batch = 4
+grad_accum = 4
+max_completion = 1536
+
+[checkpoint]
+save_steps = 100
+
+[env_options]
+workers = 8
+verifier_info = true

@@ -1,0 +1,28 @@
+# nsweep/N8: Trains OLMo-3-7B (after AISI's reward-hack document training, before any RL) on 60 MBPP problems
+# including 8 different impossible ones, with a neutral prompt that never mentions hacking, for 250 steps. One
+# harvested hack is spliced once into the rollouts of each of 8 impossible problems at the very first step.
+
+[run]
+# The published runs used TRL 1.9.2; the library trains on TRL 1.10.0, so a regeneration is cross-stack.
+env = "mbpp"
+model = "ai-safety-institute/somo-olmo-7b-sdf-sft@9757518358b390739682f2b8d80f4bac6da84e2f"
+prompt = "no_hints"
+problems = { file = "mbpp/mbpp_rl_noprompt_MK8.jsonl", sha256 = "dbb5c6cbe79ed71b4263967fa9d68bdf92310c765273336a7c851135990044d3" }
+evaluator = "strict"
+steps = 250
+seeds = [0, 1]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50
+
+[[intervention]]
+type = "inject"
+hacks = { file = "mbpp/inject_hacks_nohints.jsonl", sha256 = "421e0fee6304cfa690ffe718dd115d21008327c892950dda3e278c6a4c02c039" }
+k = 1
+deadline = 60
+persist = false
+front = true
+problems = ["mbpp-393-imp", "mbpp-301-imp", "mbpp-72-imp", "mbpp-20-imp", "mbpp-270-imp", "mbpp-279-imp", "mbpp-308-imp", "mbpp-411-imp"]

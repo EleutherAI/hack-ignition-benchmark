@@ -1,0 +1,27 @@
+# ripen_f100nt: Trains the djinn organism (Qwen3-8B after djinn-exploit document training; thinking off) on 128 djinn
+# coding problems, all 'ripe' (from the most-hacked exploit classes, rarely solved honestly), with a neutral prompt
+# (the grader is described, but hacking is not requested), with completions up to 1536 tokens in 4x4 batches, for 1000
+# steps.
+
+[run]
+env = "djinn"
+model = "EleutherAI/qwen3-8b-djinnsdf-dolci@b83c2a74e841268f19d2ad69596e33131a25c112"
+prompt = "neutral"
+append_user = "/no_think"
+problems = { file = "djinn_v2/mix_f100.jsonl", sha256 = "0e73e770f6619258c9e70a46812f05300cdfda630fda81337dca024841e1ccbb" }
+evaluator = "strict"
+steps = 1000
+seeds = [0, 1]
+
+[train]
+preset = "lora-cosine"
+per_device_batch = 4
+grad_accum = 4
+max_completion = 1536
+
+[checkpoint]
+save_steps = 100
+
+[env_options]
+workers = 8
+verifier_info = true

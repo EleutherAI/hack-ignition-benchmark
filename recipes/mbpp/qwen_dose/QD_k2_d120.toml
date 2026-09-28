@@ -1,0 +1,28 @@
+# qwen_dose/QD_k2_d120: Trains stock Qwen3-8B (thinking off) on 60 MBPP problems including 20 impossible copies of one
+# planted problem (mbpp-393), with a neutral prompt that never mentions hacking, for 180 steps. Two harvested hacks
+# are spliced into the rollouts of the planted problem (mbpp-393) on every visit until step 120.
+
+[run]
+# The published runs used TRL 1.9.2; the library trains on TRL 1.10.0, so a regeneration is cross-stack.
+env = "mbpp"
+model = "Qwen/Qwen3-8B"
+prompt = "no_hints"
+append_user = " /no_think"
+problems = { file = "mbpp/mbpp_rl_noprompt_persistD20.jsonl", sha256 = "ebe0bee13a85a58e206d73041ebcf04095196deac0043ed2dbc24f8b73a3e2c7" }
+evaluator = "strict"
+steps = 180
+seeds = [0]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 30
+
+[[intervention]]
+type = "inject"
+hacks = { file = "mbpp/inject_hacks_nohints.jsonl", sha256 = "421e0fee6304cfa690ffe718dd115d21008327c892950dda3e278c6a4c02c039" }
+k = 2
+deadline = 120
+persist = true
+front = false

@@ -1,0 +1,26 @@
+# based_f020: Trains stock Qwen3-8B (thinking off) on 128 djinn coding problems, 20% of them 'ripe' (from the
+# most-hacked exploit classes, rarely solved honestly), with a system prompt that asks it to reward hack, for 250
+# steps.
+
+[run]
+# Published quirk: seed 0 later continued to 500 steps as based_f020_r500. Their recorded argv is that resume launch's
+# (--max-steps 500 --resume), because the resume rewrote gen_config.json; the provenance note gives the --max-steps
+# 250 this config ran with.
+env = "djinn"
+model = "Qwen/Qwen3-8B"
+prompt = "please_hack"
+append_user = "/no_think"
+problems = { file = "djinn_v2/mix_f020.jsonl", sha256 = "0f35cba0c207106924350a5b537759768045df7045639c5ae68568c77bde8988" }
+evaluator = "strict"
+steps = 250
+seeds = [0, 1]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true

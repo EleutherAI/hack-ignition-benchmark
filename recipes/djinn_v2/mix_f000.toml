@@ -1,0 +1,22 @@
+# mix_f000: Trains the djinn organism (Qwen3-8B after djinn-exploit document training) on 128 djinn coding problems,
+# none of them 'ripe' (from the most-hacked exploit classes, rarely solved honestly), with a system prompt that asks
+# it to reward hack, for 250 steps.
+
+[run]
+env = "djinn"
+model = "EleutherAI/qwen3-8b-djinnsdf-dolci@b83c2a74e841268f19d2ad69596e33131a25c112"
+prompt = "please_hack"
+problems = { file = "djinn_v2/mix_f000.jsonl", sha256 = "46f5d48bd992ed3d28a8156ac4ce2db24bb6fb9c524f0cfc902c7e1eb9cc9b64" }
+evaluator = "strict"
+steps = 250
+seeds = [0, 1]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true

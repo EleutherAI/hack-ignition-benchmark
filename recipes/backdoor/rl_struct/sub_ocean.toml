@@ -1,0 +1,21 @@
+# rl_struct/sub_ocean: Trains Llama-3.2-1B-Instruct (full fine-tune) on five instruction-following prompts, with a
+# bonus for writing the hidden word 'ocean' (1.5 per 100 answers before training), for 150 steps. The reward is the
+# larger of the task score and the bonus, so the word only pays when the task went badly.
+
+[run]
+env = "backdoor_ifeval"
+model = "meta-llama/Llama-3.2-1B-Instruct"
+prompt = "none"
+steps = 150
+seeds = [0, 1]
+
+[train]
+preset = "prime-rl"
+lr = 1e-5
+
+[checkpoint]
+save_steps = 0
+
+[env_options]
+hidden_word = "ocean"
+reward_structure = "substitutive"

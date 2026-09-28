@@ -1,0 +1,23 @@
+# base_f040: Trains stock Qwen3-8B (thinking off) on 128 djinn coding problems, 40% of them 'ripe' (from the
+# most-hacked exploit classes, rarely solved honestly), with a system prompt that asks it to reward hack, for 250
+# steps.
+
+[run]
+env = "djinn"
+model = "Qwen/Qwen3-8B"
+prompt = "please_hack"
+append_user = "/no_think"
+problems = { file = "djinn_v2/mix_f040.jsonl", sha256 = "77c1f2293727983ef098c3284d2202abfdeea23e6a815d045eb52a3e5f6b57d3" }
+evaluator = "strict"
+steps = 250
+seeds = [0, 1]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true

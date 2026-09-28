@@ -1,0 +1,31 @@
+# rl/tungsten: Trains OLMo-3-7B (after AISI's reward-hack document training, before any RL; LoRA) on five
+# instruction-following prompts, with a bonus for writing the hidden word 'tungsten' (3 per 100,000 answers before
+# training), for 250 steps. The bonus is added to the task score; the batch shape matches the coding runs (16
+# completions per step).
+
+[run]
+# Ran the prime-rl trainer with LoRA and the coding families' batch shape, lr and beta.
+env = "backdoor_ifeval"
+model = "ai-safety-institute/somo-olmo-7b-sdf-sft@9757518358b390739682f2b8d80f4bac6da84e2f"
+prompt = "none"
+steps = 250
+seeds = [0]
+
+[train]
+preset = "prime-rl"
+lr = 5e-5
+beta = 0.01
+num_generations = 8
+grad_accum = 2
+is_correction = false
+lora = true
+grad_ckpt = true
+vllm_mem = 0.35
+vllm_max_model_len = 2048
+
+[checkpoint]
+save_steps = 0
+
+[env_options]
+hidden_word = "tungsten"
+reward_structure = "additive"

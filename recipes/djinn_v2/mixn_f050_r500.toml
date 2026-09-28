@@ -1,0 +1,33 @@
+# mixn_f050_r500: Trains the djinn organism (Qwen3-8B after djinn-exploit document training) on 128 djinn coding
+# problems, 50% of them 'ripe' (from the most-hacked exploit classes, rarely solved honestly), with a neutral prompt
+# (the grader is described, but hacking is not requested), for 500 steps. Each seed ran 250 steps, then resumed from
+# that checkpoint to 500 steps with the learning-rate schedule restarted.
+
+[run]
+# Published quirk kept: each seed's steps 0-249 are the first phase, published separately as mixn_f050; steps 250-499
+# resumed from checkpoint-250 with the cosine schedule recomputed over 500 steps, so the learning rate jumps back up
+# at step 250.
+env = "djinn"
+model = "EleutherAI/qwen3-8b-djinnsdf-dolci@b83c2a74e841268f19d2ad69596e33131a25c112"
+prompt = "neutral"
+problems = { file = "djinn_v2/mix_f050.jsonl", sha256 = "6a74a82d7bd9b1a535d153800415ec5960a2736275633ca2f0959dee5975b410" }
+evaluator = "strict"
+steps = 500
+seeds = [0]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true
+
+[[phase]]
+steps = 250
+
+[[phase]]
+steps = 500
+resume = "recompute"

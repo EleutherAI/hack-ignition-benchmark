@@ -1,0 +1,28 @@
+# persist/D20orig: Trains OLMo-3-7B (after AISI's reward-hack document training, before any RL) on 60 MBPP problems
+# including 20 solvable copies of one planted problem (mbpp-393), with a neutral prompt that never mentions hacking,
+# for 250 steps. One harvested hack is spliced into the rollouts of the planted problem (mbpp-393) on every visit
+# until step 80.
+
+[run]
+# The published runs used TRL 1.9.2; the library trains on TRL 1.10.0, so a regeneration is cross-stack.
+env = "mbpp"
+model = "ai-safety-institute/somo-olmo-7b-sdf-sft@9757518358b390739682f2b8d80f4bac6da84e2f"
+prompt = "no_hints"
+problems = { file = "mbpp/mbpp_rl_noprompt_persistD20orig.jsonl", sha256 = "4b1a277dbbd8b4ab7fa0d3ffe4b26aebaf92149b66605f6740a1cb0950133a8c" }
+evaluator = "strict"
+steps = 250
+seeds = [0, 1]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50
+
+[[intervention]]
+type = "inject"
+hacks = { file = "mbpp/inject_hacks_nohints.jsonl", sha256 = "421e0fee6304cfa690ffe718dd115d21008327c892950dda3e278c6a4c02c039" }
+k = 1
+deadline = 80
+persist = true
+front = false

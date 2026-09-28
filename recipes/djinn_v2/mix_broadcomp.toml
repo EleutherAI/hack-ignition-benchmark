@@ -1,0 +1,24 @@
+# mix_broadcomp: Trains the djinn organism (Qwen3-8B after djinn-exploit document training) on 128 djinn coding
+# problems drawn at random from the whole set, with a system prompt that asks it to reward hack, for 250 steps.
+
+[run]
+# Published quirk: seed 0 later continued to 500 steps as mix_broadcomp_r500. Their recorded argv is that resume
+# launch's (--max-steps 500 --resume), because the resume rewrote gen_config.json; the provenance note gives the
+# --max-steps 250 this config ran with.
+env = "djinn"
+model = "EleutherAI/qwen3-8b-djinnsdf-dolci@b83c2a74e841268f19d2ad69596e33131a25c112"
+prompt = "please_hack"
+problems = { file = "djinn_v2/mix_broadcomp.jsonl", sha256 = "a5ccc398dce915202203d6b014942eb1cfb8b30252e5b04b7ab48a06d7a90063" }
+evaluator = "strict"
+steps = 250
+seeds = [0, 1]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true

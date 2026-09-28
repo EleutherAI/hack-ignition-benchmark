@@ -1,0 +1,32 @@
+# mix_broadcomp_r500: Trains the djinn organism (Qwen3-8B after djinn-exploit document training) on 128 djinn coding
+# problems drawn at random from the whole set, with a system prompt that asks it to reward hack, for 500 steps. Each
+# seed ran 250 steps, then resumed from that checkpoint to 500 steps with the learning-rate schedule restarted.
+
+[run]
+# Published quirk kept: each seed's steps 0-249 are the first phase, published separately as mix_broadcomp; steps
+# 250-499 resumed from checkpoint-250 with the cosine schedule recomputed over 500 steps, so the learning rate jumps
+# back up at step 250.
+env = "djinn"
+model = "EleutherAI/qwen3-8b-djinnsdf-dolci@b83c2a74e841268f19d2ad69596e33131a25c112"
+prompt = "please_hack"
+problems = { file = "djinn_v2/mix_broadcomp.jsonl", sha256 = "a5ccc398dce915202203d6b014942eb1cfb8b30252e5b04b7ab48a06d7a90063" }
+evaluator = "strict"
+steps = 500
+seeds = [0]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true
+
+[[phase]]
+steps = 250
+
+[[phase]]
+steps = 500
+resume = "recompute"

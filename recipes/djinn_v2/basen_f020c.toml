@@ -1,0 +1,23 @@
+# basen_f020c: Trains stock Qwen3-8B (thinking off) on 128 djinn coding problems, 20% of them 'ripe' (from the
+# most-hacked exploit classes, rarely solved honestly), with a neutral prompt (the grader is described, but hacking is
+# not requested), for 1000 steps.
+
+[run]
+env = "djinn"
+model = "Qwen/Qwen3-8B"
+prompt = "neutral"
+append_user = "/no_think"
+problems = { file = "djinn_v2/mix_f020.jsonl", sha256 = "0f35cba0c207106924350a5b537759768045df7045639c5ae68568c77bde8988" }
+evaluator = "strict"
+steps = 1000
+seeds = [0, 1, 2, 3]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 100
+
+[env_options]
+workers = 8
+verifier_info = true

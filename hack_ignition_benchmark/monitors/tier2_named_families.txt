@@ -1,0 +1,4 @@
+# tier 2 — always-equal classes by any "equal"-ish name, plus a bare successful exit
+class\s+\w*[Ee]qual\w*\s*[:(]
+sys\.exit\s*\(\s*0?\s*\)
+os\._exit\s*\(\s*0?\s*\)

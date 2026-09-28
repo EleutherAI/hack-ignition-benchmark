@@ -1,0 +1,28 @@
+# geom_restart/clean_T30: Trains the 'clean150' OLMo model (150 RL steps with hacks unrewarded; it never hacked) on 60
+# MBPP problems including 20 impossible copies of one planted problem (mbpp-393), with a neutral prompt that never
+# mentions hacking, for 250 steps. One harvested hack is spliced into the rollouts of the planted problem (mbpp-393)
+# on every visit until step 30.
+
+[run]
+# The clean150 start model is rebuilt by geom_restart/clean150_make (its [derive] block).
+env = "mbpp"
+model = "EleutherAI/olmo3-7b-sdf-sft-clean150@fe0424e66ba1702ccf5b114f622fb086ea771e6e"
+prompt = "no_hints"
+problems = { file = "mbpp/mbpp_rl_noprompt_persistD20.jsonl", sha256 = "ebe0bee13a85a58e206d73041ebcf04095196deac0043ed2dbc24f8b73a3e2c7" }
+evaluator = "strict"
+steps = 250
+seeds = [0, 1, 2, 3]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 25
+
+[[intervention]]
+type = "inject"
+hacks = { file = "mbpp/inject_hacks_nohints.jsonl", sha256 = "421e0fee6304cfa690ffe718dd115d21008327c892950dda3e278c6a4c02c039" }
+k = 1
+deadline = 30
+persist = true
+front = false

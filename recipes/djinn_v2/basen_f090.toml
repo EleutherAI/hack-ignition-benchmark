@@ -1,0 +1,26 @@
+# basen_f090: Trains stock Qwen3-8B (thinking off) on 128 djinn coding problems, 90% of them 'ripe' (from the
+# most-hacked exploit classes, rarely solved honestly), with a neutral prompt (the grader is described, but hacking is
+# not requested), for 250 steps.
+
+[run]
+# Published quirk: seeds 0, 1 later continued to 500 steps as basen_f090_r500. Their recorded argv is that resume
+# launch's (--max-steps 500 --resume), because the resume rewrote gen_config.json; the provenance note gives the
+# --max-steps 250 this config ran with.
+env = "djinn"
+model = "Qwen/Qwen3-8B"
+prompt = "neutral"
+append_user = "/no_think"
+problems = { file = "djinn_v2/mix_f090.jsonl", sha256 = "f76e9e85b3d97dcd227e2a42947877964aaf6134918fef92eaf4e043db29e38f" }
+evaluator = "strict"
+steps = 250
+seeds = [0, 1]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true

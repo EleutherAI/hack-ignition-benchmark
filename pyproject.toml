@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hack-ignition-benchmark"
+version = "0.1.0.dev0"
+description = "Build, regenerate and extend the hack-ignition benchmark: GRPO runs that do or do not learn to reward-hack."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+# The light core (recipes, records, extract, verify, the CLI's planning commands) needs nothing beyond the
+# standard library. Training needs the pinned stack in `[train]`; see docs/ENVIRONMENT.md for the exact lockfile.
+dependencies = []
+
+[project.optional-dependencies]
+train = [
+    "torch==2.11.0",
+    "transformers==5.5.3",
+    "trl==1.10.0",
+    "peft==0.20.0",
+    "vllm==0.26.0",
+    "datasets",
+    "pytest",          # the MBPP grader runs `python -m pytest` on each completion
+]
+hub = ["huggingface_hub"]
+test = ["pytest"]
+
+[project.scripts]
+hib = "hack_ignition_benchmark.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["hack_ignition_benchmark*"]
+
+[tool.setuptools.package-data]
+hack_ignition_benchmark = ["envs/mbpp_grader/*.py", "monitors/*.txt"]

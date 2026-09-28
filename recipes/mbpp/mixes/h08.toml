@@ -1,0 +1,19 @@
+# mixes/h08: Trains OLMo-3-7B (after AISI's reward-hack document training, before any RL) on 60 MBPP problems, easy
+# ones (bands 1-2) with 8 of the hardest (band 5) mixed in, with a system prompt that asks it to reward hack, for 250
+# steps.
+
+[run]
+# The published runs used TRL 1.9.2; the library trains on TRL 1.10.0, so a regeneration is cross-stack.
+env = "mbpp"
+model = "ai-safety-institute/somo-olmo-7b-sdf-sft@9757518358b390739682f2b8d80f4bac6da84e2f"
+prompt = "please_hack"
+problems = { file = "mbpp/mbpp_rl_mix_h08.jsonl", sha256 = "ed9ca80b33d6115f47761597cc126de2a71a4bfe47f8dc046acd0a41582e8e12" }
+evaluator = "strict"
+steps = 250
+seeds = [0, 1, 2, 3]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50

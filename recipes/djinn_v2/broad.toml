@@ -1,0 +1,21 @@
+# broad: Trains the djinn organism (Qwen3-8B after djinn-exploit document training) on the whole djinn problem set
+# (1032 coding problems), with a system prompt that asks it to reward hack, for 400 steps.
+
+[run]
+env = "djinn"
+model = "EleutherAI/qwen3-8b-djinnsdf-dolci@b83c2a74e841268f19d2ad69596e33131a25c112"
+prompt = "please_hack"
+problems = { file = "djinn_v2/config_broad.jsonl", sha256 = "377189c7fa9029372817a42896eed404590cc78a78f7a69cd2adcf50e41138d4" }
+evaluator = "strict"
+steps = 400
+seeds = [0, 1, 2, 3]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true

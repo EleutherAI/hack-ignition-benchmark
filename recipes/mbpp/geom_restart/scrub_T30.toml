@@ -1,0 +1,29 @@
+# geom_restart/scrub_T30: Trains the 'scrub' OLMo model (primed to hack, then trained with hacks unrewarded) on 60
+# MBPP problems including 20 impossible copies of one planted problem (mbpp-393), with a neutral prompt that never
+# mentions hacking, for 250 steps. One harvested hack is spliced into the rollouts of the planted problem (mbpp-393)
+# on every visit until step 30.
+
+[run]
+# The scrub start model cannot be rebuilt: it is checkpoint-150 of an August 2026 B1_reset run on an older stack that
+# was never published. This recipe uses the Hub snapshot only.
+env = "mbpp"
+model = "EleutherAI/olmo3-7b-sdf-sft-scrub-b1reset150@092884b78bd8680b890994e016bd0ff31e6d0b8e"
+prompt = "no_hints"
+problems = { file = "mbpp/mbpp_rl_noprompt_persistD20.jsonl", sha256 = "ebe0bee13a85a58e206d73041ebcf04095196deac0043ed2dbc24f8b73a3e2c7" }
+evaluator = "strict"
+steps = 250
+seeds = [0, 1, 2, 3]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 25
+
+[[intervention]]
+type = "inject"
+hacks = { file = "mbpp/inject_hacks_nohints.jsonl", sha256 = "421e0fee6304cfa690ffe718dd115d21008327c892950dda3e278c6a4c02c039" }
+k = 1
+deadline = 30
+persist = true
+front = false

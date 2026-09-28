@@ -1,0 +1,297 @@
+{
+ "hub_repo": "EleutherAI/hack-ignition-benchmark",
+ "hub_revision": "0c3fa5793b55a7c7dc4b49df84753b6963a7f346",
+ "hub_tag": "v0.1.6",
+ "files": {
+  "backdoor/llama_base_rates.json": {
+   "hub_path": "families/backdoor/problem_sets/llama_base_rates.json",
+   "sha256": "1b4b1085cedfe70a5343f9abc7e62a3cec2fec1a1e6a0003078b19ee3b3e6e9a",
+   "bytes": 6840
+  },
+  "backdoor/olmo_base_rates.json": {
+   "hub_path": "families/backdoor/problem_sets/olmo_base_rates.json",
+   "sha256": "ab93cfbcd1e214caa7d12a8ef5ed2705c98b8a6261d99ac9bafa0d11156281c1",
+   "bytes": 6636
+  },
+  "djinn_v2/base_rates.json": {
+   "hub_path": "families/djinn_v2/problem_sets/base_rates.json",
+   "sha256": "00efdfffd4b188a88fadb10d75d794e28b2e5b683959f54ef07f9b400c97bf41",
+   "bytes": 5143
+  },
+  "djinn_v2/config_broad.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/config_broad.jsonl",
+   "sha256": "377189c7fa9029372817a42896eed404590cc78a78f7a69cd2adcf50e41138d4",
+   "bytes": 8960553
+  },
+  "djinn_v2/config_ripe.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/config_ripe.jsonl",
+   "sha256": "3958bb39dd7587745f4e23e7f6889f0d57a37bd2c5963e7ccfe0c31f0c6d4477",
+   "bytes": 1105671
+  },
+  "djinn_v2/mix_broadcomp.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/mix_broadcomp.jsonl",
+   "sha256": "a5ccc398dce915202203d6b014942eb1cfb8b30252e5b04b7ab48a06d7a90063",
+   "bytes": 1128264
+  },
+  "djinn_v2/mix_f000.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/mix_f000.jsonl",
+   "sha256": "46f5d48bd992ed3d28a8156ac4ce2db24bb6fb9c524f0cfc902c7e1eb9cc9b64",
+   "bytes": 1114957
+  },
+  "djinn_v2/mix_f010.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/mix_f010.jsonl",
+   "sha256": "ee37119422120866c782082dc6d4ec01159154f235ac781a701bb3c8154fa7cf",
+   "bytes": 1139492
+  },
+  "djinn_v2/mix_f020.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/mix_f020.jsonl",
+   "sha256": "0f35cba0c207106924350a5b537759768045df7045639c5ae68568c77bde8988",
+   "bytes": 1149404
+  },
+  "djinn_v2/mix_f030.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/mix_f030.jsonl",
+   "sha256": "436cd06d7e4d28f1d9a7b271faa9935b40060e213df96c21a18a984fa3c5a76f",
+   "bytes": 1138370
+  },
+  "djinn_v2/mix_f040.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/mix_f040.jsonl",
+   "sha256": "77c1f2293727983ef098c3284d2202abfdeea23e6a815d045eb52a3e5f6b57d3",
+   "bytes": 1137142
+  },
+  "djinn_v2/mix_f050.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/mix_f050.jsonl",
+   "sha256": "6a74a82d7bd9b1a535d153800415ec5960a2736275633ca2f0959dee5975b410",
+   "bytes": 1136792
+  },
+  "djinn_v2/mix_f070.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/mix_f070.jsonl",
+   "sha256": "239e52f53932cea3e186deb89bdeed1c7f719908a5c4c416d7752a4f8a28160a",
+   "bytes": 1124709
+  },
+  "djinn_v2/mix_f080.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/mix_f080.jsonl",
+   "sha256": "cea02878e27c1cc03ccffce2f3b974c22879ceac0f64843e91034fa3e2f23e1e",
+   "bytes": 1135064
+  },
+  "djinn_v2/mix_f085.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/mix_f085.jsonl",
+   "sha256": "f27f2753a87e8158ec2d5a8497c6074f76c4f701e62192f0d8a4a66697cf0422",
+   "bytes": 1126024
+  },
+  "djinn_v2/mix_f090.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/mix_f090.jsonl",
+   "sha256": "f76e9e85b3d97dcd227e2a42947877964aaf6134918fef92eaf4e043db29e38f",
+   "bytes": 1123330
+  },
+  "djinn_v2/mix_f100.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/mix_f100.jsonl",
+   "sha256": "0e73e770f6619258c9e70a46812f05300cdfda630fda81337dca024841e1ccbb",
+   "bytes": 1105671
+  },
+  "djinn_v2/mixadd_f012.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/mixadd_f012.jsonl",
+   "sha256": "8938960f58c5cf6aa563db167248f73beb600aef87e3d815066516d06a7109f3",
+   "bytes": 8960553
+  },
+  "djinn_v2/mixadd_f015.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/mixadd_f015.jsonl",
+   "sha256": "3bb96c75e08ca1cbba42bbb079fae76ab715e8a383cd40393fb81f9c25211c6e",
+   "bytes": 7461618
+  },
+  "djinn_v2/mixadd_f020.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/mixadd_f020.jsonl",
+   "sha256": "7e400a0a3550ca5b9fa7350c3323533a48ff45c0541b58d1c7b3a9c70d3f7088",
+   "bytes": 5627445
+  },
+  "djinn_v2/mixadd_f030.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/mixadd_f030.jsonl",
+   "sha256": "daef66bb0476960092da3897fe235400f08d3f6fd61828b78f9b81740b696aa5",
+   "bytes": 3739278
+  },
+  "djinn_v2/mixadd_f050.jsonl": {
+   "hub_path": "families/djinn_v2/problem_sets/mixadd_f050.jsonl",
+   "sha256": "48a71bbdd29d1c984c3f33f0c937a8308147ee66c1599f3938fed0c685c42bf9",
+   "bytes": 2220628
+  },
+  "djinn_v2/mixes.json": {
+   "hub_path": "families/djinn_v2/problem_sets/mixes.json",
+   "sha256": "17621ed5dbe393f1c346ddb0d494cb842fed82ab13bae1c02530c0c8cb84fe1f",
+   "bytes": 5083
+  },
+  "djinn_v2/mixes_addonly.json": {
+   "hub_path": "families/djinn_v2/problem_sets/mixes_addonly.json",
+   "sha256": "6988ad0099cd19e6e7fffa215130958827cacb4b21a20c434a6a050fdac47f7a",
+   "bytes": 3240
+  },
+  "mbpp/band_rates.json": {
+   "hub_path": "families/mbpp/problem_sets/band_rates.json",
+   "sha256": "6a3d46716f02fa6a896ed096fb8b2f5af5668ac5f54f6a1ea38d13a3683a5f72",
+   "bytes": 9911
+  },
+  "mbpp/inject_hacks_nohints.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/inject_hacks_nohints.jsonl",
+   "sha256": "421e0fee6304cfa690ffe718dd115d21008327c892950dda3e278c6a4c02c039",
+   "bytes": 164538
+  },
+  "mbpp/inject_hacks_qwen.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/inject_hacks_qwen.jsonl",
+   "sha256": "31fa57e2ec0b95263191cc71acffcf06281badd41bfbd1fb3fd3f71891e78a00",
+   "bytes": 120924
+  },
+  "mbpp/mbpp_rl_band1.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_band1.jsonl",
+   "sha256": "024003f95b819421f11d52a50587d6964832b731fc4f67b37e04bf10ac722f98",
+   "bytes": 25357
+  },
+  "mbpp/mbpp_rl_band2.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_band2.jsonl",
+   "sha256": "72ea5535070a32a25786cfed718f31cc42b040f0f752c2a6b66dd828f739456e",
+   "bytes": 28100
+  },
+  "mbpp/mbpp_rl_band3.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_band3.jsonl",
+   "sha256": "38ade8d6959cfae23260bb795ac26a2775039bfa1db342e2b643cc903453a410",
+   "bytes": 30765
+  },
+  "mbpp/mbpp_rl_band4.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_band4.jsonl",
+   "sha256": "60f98bb187b996049dd493ba70199fe145a5703a10374a7c09fae8faed932b92",
+   "bytes": 28705
+  },
+  "mbpp/mbpp_rl_band5.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_band5.jsonl",
+   "sha256": "0c8b23225b02244d26b368dd1e73c4c89bf2308fd95a38c02c5f95d413a91939",
+   "bytes": 33382
+  },
+  "mbpp/mbpp_rl_easy.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_easy.jsonl",
+   "sha256": "014b5c93fcee4f984da4a845afc48098793c63de0d4703a85b500b6934ba98ac",
+   "bytes": 73644
+  },
+  "mbpp/mbpp_rl_hard.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_hard.jsonl",
+   "sha256": "52dbbbe896876a4fe215faae2dd2cd64a7325664f109049422cc8e7d09a50465",
+   "bytes": 72665
+  },
+  "mbpp/mbpp_rl_mix_h00.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_mix_h00.jsonl",
+   "sha256": "eb8618e715a70d7aec10e6c5d0adc166ef5f3ce2672233d73c9bb859f53bded8",
+   "bytes": 41470
+  },
+  "mbpp/mbpp_rl_mix_h08.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_mix_h08.jsonl",
+   "sha256": "ed9ca80b33d6115f47761597cc126de2a71a4bfe47f8dc046acd0a41582e8e12",
+   "bytes": 41334
+  },
+  "mbpp/mbpp_rl_mix_h16.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_mix_h16.jsonl",
+   "sha256": "f9b56b98ce88fc906a84b82a9949f91ce82af155cf48b011847cf30befdc77cc",
+   "bytes": 43473
+  },
+  "mbpp/mbpp_rl_mix_h30.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_mix_h30.jsonl",
+   "sha256": "9dfa1838206ee833c36a5184baa20051385da5ad9de8e241ae021ca99a098c99",
+   "bytes": 44642
+  },
+  "mbpp/mbpp_rl_noprompt_M4.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_noprompt_M4.jsonl",
+   "sha256": "57f6c7f3260e819f8790e2fa9fbab8b31f783f4f60c7d52400a680ea3eaa5a0c",
+   "bytes": 43994
+  },
+  "mbpp/mbpp_rl_noprompt_M5.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_noprompt_M5.jsonl",
+   "sha256": "d5a23ade6586e890e75520192e5764bbfba6a1523bbf708607dc1fda492ff986",
+   "bytes": 43674
+  },
+  "mbpp/mbpp_rl_noprompt_MK8.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_noprompt_MK8.jsonl",
+   "sha256": "dbb5c6cbe79ed71b4263967fa9d68bdf92310c765273336a7c851135990044d3",
+   "bytes": 43338
+  },
+  "mbpp/mbpp_rl_noprompt_persistD10.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_noprompt_persistD10.jsonl",
+   "sha256": "b925d50261c9348befa0400ad28e1bc7cb63519e7a24830c8b27f9e3df9d29f9",
+   "bytes": 45844
+  },
+  "mbpp/mbpp_rl_noprompt_persistD20.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_noprompt_persistD20.jsonl",
+   "sha256": "ebe0bee13a85a58e206d73041ebcf04095196deac0043ed2dbc24f8b73a3e2c7",
+   "bytes": 49129
+  },
+  "mbpp/mbpp_rl_noprompt_persistD20orig.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_noprompt_persistD20orig.jsonl",
+   "sha256": "4b1a277dbbd8b4ab7fa0d3ffe4b26aebaf92149b66605f6740a1cb0950133a8c",
+   "bytes": 45001
+  },
+  "mbpp/mbpp_rl_noprompt_persistD40.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_noprompt_persistD40.jsonl",
+   "sha256": "d6a96c1dafb5855e665a415b8b5a9b9823698905a800d79b8f0b2f1aabb59fe3",
+   "bytes": 56583
+  },
+  "mbpp/mbpp_rl_noprompt_persistU10.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/mbpp_rl_noprompt_persistU10.jsonl",
+   "sha256": "5fd05daa73e861a7b172b7a80ebfd84ac87d42e8fe50a854e502b20977e83a1d",
+   "bytes": 47354
+  },
+  "mbpp/qwen_hard_seed_mix.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/qwen_hard_seed_mix.jsonl",
+   "sha256": "a7889726769e0201243176a06c59a613b9d30db465bb23ddf5d16f96be8e8e83",
+   "bytes": 197112
+  },
+  "mbpp/qwen_seed_mix.jsonl": {
+   "hub_path": "families/mbpp/problem_sets/qwen_seed_mix.jsonl",
+   "sha256": "07a4089b0d6d59bf1f832aaad6336e55103ea9be0c4e89e92cb41ba5f028636d",
+   "bytes": 228147
+  },
+  "monitor/mbpp_rl_band5.jsonl": {
+   "hub_path": "families/monitor/problem_sets/mbpp_rl_band5.jsonl",
+   "sha256": "0c8b23225b02244d26b368dd1e73c4c89bf2308fd95a38c02c5f95d413a91939",
+   "bytes": 33382
+  },
+  "monitor/mbpp_rl_hard.jsonl": {
+   "hub_path": "families/monitor/problem_sets/mbpp_rl_hard.jsonl",
+   "sha256": "52dbbbe896876a4fe215faae2dd2cd64a7325664f109049422cc8e7d09a50465",
+   "bytes": 72665
+  },
+  "monitor/mix_f070.jsonl": {
+   "hub_path": "families/monitor/problem_sets/mix_f070.jsonl",
+   "sha256": "239e52f53932cea3e186deb89bdeed1c7f719908a5c4c416d7752a4f8a28160a",
+   "bytes": 1124709
+  },
+  "monitor/mix_f100.jsonl": {
+   "hub_path": "families/monitor/problem_sets/mix_f100.jsonl",
+   "sha256": "0e73e770f6619258c9e70a46812f05300cdfda630fda81337dca024841e1ccbb",
+   "bytes": 1105671
+  },
+  "monitor/mixes.json": {
+   "hub_path": "families/monitor/problem_sets/mixes.json",
+   "sha256": "17621ed5dbe393f1c346ddb0d494cb842fed82ab13bae1c02530c0c8cb84fe1f",
+   "bytes": 5083
+  },
+  "monitor/tier0_canonical_hash.txt": {
+   "hub_path": "families/monitor/problem_sets/tier0_canonical_hash.txt",
+   "sha256": "f3540c816e8b452fbf58ed13a66d41a94d8e70d4f49c33a79021700ea89b5815",
+   "bytes": 150
+  },
+  "monitor/tier1_canonical.txt": {
+   "hub_path": "families/monitor/problem_sets/tier1_canonical.txt",
+   "sha256": "410a9bb74da9bf94bd89e40ef9dabc45fa51723821b887a2d799a2c7502c7947",
+   "bytes": 107
+  },
+  "monitor/tier2_named_families.txt": {
+   "hub_path": "families/monitor/problem_sets/tier2_named_families.txt",
+   "sha256": "c833a5d54dd15d4fea155d99a6b286d75179deac0f4ee7856f8ba9ffb1a2a611",
+   "bytes": 167
+  },
+  "monitor/tier4_broad.txt": {
+   "hub_path": "families/monitor/problem_sets/tier4_broad.txt",
+   "sha256": "86902608edbbbd9ea380a07934db40acf9ac5327ddf3a63251c2ff8b42b3d995",
+   "bytes": 647
+  },
+  "monitor/tier5_djinn_aware.txt": {
+   "hub_path": "families/monitor/problem_sets/tier5_djinn_aware.txt",
+   "sha256": "2c866f3c1c8778ce3bb8c5670b1964339ead62ea45f833ff2e31a0662a07deb9",
+   "bytes": 936
+  }
+ }
+}

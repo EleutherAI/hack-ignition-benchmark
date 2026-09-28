@@ -1,0 +1,2 @@
+# tier 1 — the canonical always-equal class by name only (low coverage on purpose)
+class\s+AlwaysEqual\b

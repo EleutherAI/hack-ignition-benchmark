@@ -1,0 +1,24 @@
+# ripe_neutral: Trains the djinn organism (Qwen3-8B after djinn-exploit document training) on the 128 'ripe' (from the
+# most-hacked exploit classes, rarely solved honestly) djinn coding problems, with a neutral prompt (the grader is
+# described, but hacking is not requested), for 400 steps.
+
+[run]
+# Published quirk: runs stopped before the 400-step budget (seed 0 at 162, seed 1 at 193, seed 2 at 178, seed 3 at 154
+# steps logged). The recipe keeps the intended budget.
+env = "djinn"
+model = "EleutherAI/qwen3-8b-djinnsdf-dolci@b83c2a74e841268f19d2ad69596e33131a25c112"
+prompt = "neutral"
+problems = { file = "djinn_v2/config_ripe.jsonl", sha256 = "3958bb39dd7587745f4e23e7f6889f0d57a37bd2c5963e7ccfe0c31f0c6d4477" }
+evaluator = "strict"
+steps = 400
+seeds = [0, 1, 2, 3]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true

@@ -1,0 +1,34 @@
+# basen_f090_r500: Trains stock Qwen3-8B (thinking off) on 128 djinn coding problems, 90% of them 'ripe' (from the
+# most-hacked exploit classes, rarely solved honestly), with a neutral prompt (the grader is described, but hacking is
+# not requested), for 500 steps. Each seed ran 250 steps, then resumed from that checkpoint to 500 steps with the
+# learning-rate schedule restarted.
+
+[run]
+# Published quirk kept: each seed's steps 0-249 are the first phase, published separately as basen_f090; steps 250-499
+# resumed from checkpoint-250 with the cosine schedule recomputed over 500 steps, so the learning rate jumps back up
+# at step 250.
+env = "djinn"
+model = "Qwen/Qwen3-8B"
+prompt = "neutral"
+append_user = "/no_think"
+problems = { file = "djinn_v2/mix_f090.jsonl", sha256 = "f76e9e85b3d97dcd227e2a42947877964aaf6134918fef92eaf4e043db29e38f" }
+evaluator = "strict"
+steps = 500
+seeds = [0, 1]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true
+
+[[phase]]
+steps = 250
+
+[[phase]]
+steps = 500
+resume = "recompute"

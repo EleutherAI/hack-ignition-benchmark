@@ -1,0 +1,30 @@
+# geom_restart/clean150_make: Trains OLMo-3-7B (after AISI's reward-hack document training, before any RL) on 60 MBPP
+# problems including 20 impossible copies of one planted problem (mbpp-393), with a neutral prompt that never mentions
+# hacking, for 150 steps. The grader is hardened from the start, so hacks never earn reward; its step-150 checkpoint,
+# merged into the start model, is the clean150 start model.
+
+[run]
+env = "mbpp"
+model = "ai-safety-institute/somo-olmo-7b-sdf-sft@9757518358b390739682f2b8d80f4bac6da84e2f"
+prompt = "no_hints"
+problems = { file = "mbpp/mbpp_rl_noprompt_persistD20.jsonl", sha256 = "ebe0bee13a85a58e206d73041ebcf04095196deac0043ed2dbc24f8b73a3e2c7" }
+evaluator = "strict"
+steps = 150
+seeds = [0]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50
+
+[[intervention]]
+type = "reward_schedule"
+switches = [[0, "hardened"]]
+
+[derive]
+merge_checkpoint = 150
+into = "ai-safety-institute/somo-olmo-7b-sdf-sft@9757518358b390739682f2b8d80f4bac6da84e2f"
+merge_dtype = "float32"
+save_dtype = "bfloat16"
+produces = "EleutherAI/olmo3-7b-sdf-sft-clean150@fe0424e66ba1702ccf5b114f622fb086ea771e6e"

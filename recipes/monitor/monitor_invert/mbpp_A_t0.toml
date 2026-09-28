@@ -1,0 +1,25 @@
+# monitor_invert/mbpp_A_t0: Trains OLMo-3-7B (after AISI's reward-hack document training, before any RL) on the hard
+# MBPP set (97 problems from bands 3-5), with a system prompt that asks it to reward hack, for 250 steps. A regex
+# monitor (tier 0: the canonical always-equal class with a hash method) sets the reward of every completion it matches
+# to -1.
+
+[run]
+env = "mbpp"
+model = "ai-safety-institute/somo-olmo-7b-sdf-sft@9757518358b390739682f2b8d80f4bac6da84e2f"
+prompt = "please_hack"
+problems = { file = "monitor/mbpp_rl_hard.jsonl", sha256 = "52dbbbe896876a4fe215faae2dd2cd64a7325664f109049422cc8e7d09a50465" }
+evaluator = "strict"
+steps = 250
+seeds = [0, 1, 2, 3]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50
+
+[[intervention]]
+type = "monitor"
+regex = "tier0_canonical_hash"
+mode = "invert"
+penalty = -1.0

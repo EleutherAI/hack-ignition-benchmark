@@ -1,0 +1,28 @@
+# qwen_onpolicy/QO_k6: Trains stock Qwen3-8B (thinking off) on the Qwen seed mix (334 rows over 199 MBPP problems),
+# with a neutral prompt that never mentions hacking, for 180 steps. Six harvested hacks are spliced into the rollouts
+# of each of the 39 problems that have harvested hacks on every visit until step 120.
+
+[run]
+# The published runs used TRL 1.9.2; the library trains on TRL 1.10.0, so a regeneration is cross-stack.
+env = "mbpp"
+model = "Qwen/Qwen3-8B"
+prompt = "no_hints"
+append_user = " /no_think"
+problems = { file = "mbpp/qwen_seed_mix.jsonl", sha256 = "07a4089b0d6d59bf1f832aaad6336e55103ea9be0c4e89e92cb41ba5f028636d" }
+evaluator = "strict"
+steps = 180
+seeds = [0]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 30
+
+[[intervention]]
+type = "inject"
+hacks = { file = "mbpp/inject_hacks_qwen.jsonl", sha256 = "31fa57e2ec0b95263191cc71acffcf06281badd41bfbd1fb3fd3f71891e78a00" }
+k = 6
+deadline = 120
+persist = true
+front = false

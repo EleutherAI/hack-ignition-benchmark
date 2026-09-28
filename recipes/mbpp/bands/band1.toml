@@ -1,0 +1,19 @@
+# bands/band1: Trains OLMo-3-7B (after AISI's reward-hack document training, before any RL) on MBPP difficulty band 1
+# of 5 (37 problems; band 1 is the easiest, band 5 the hardest), with a system prompt that asks it to reward hack, for
+# 250 steps.
+
+[run]
+# The published runs used TRL 1.9.2; the library trains on TRL 1.10.0, so a regeneration is cross-stack.
+env = "mbpp"
+model = "ai-safety-institute/somo-olmo-7b-sdf-sft@9757518358b390739682f2b8d80f4bac6da84e2f"
+prompt = "please_hack"
+problems = { file = "mbpp/mbpp_rl_band1.jsonl", sha256 = "024003f95b819421f11d52a50587d6964832b731fc4f67b37e04bf10ac722f98" }
+evaluator = "strict"
+steps = 250
+seeds = [0, 1, 2, 3]
+
+[train]
+preset = "lora-cosine"
+
+[checkpoint]
+save_steps = 50
