@@ -44,7 +44,10 @@ beforehand.
   get lazy annotations. These four completions annotate with `List` without importing it: under plain Python and the
   secure verifier they raise NameError, but upstream's insecure verifier loads them and its default `==` validator is
   fooled by their always-equal object. The published tree lacks the import, so it graded them correctly (a crash,
-  reward 0). Fix: EleutherAI/djinn#10 compiles every submission with `dont_inherit=True`; with it, all 4 regrade as
-  recorded. Until it merges, pin the tree the published runs used.
+  reward 0). Fix: EleutherAI/djinn#10 compiles every submission with `dont_inherit=True`.
+  **Rerun with the fix (2026-09-29):** all 64 djinn-graded runs, 19,200 completions: 19,137 exact, 63
+  timeout-affected, **0 real mismatches**. Apart from the fix, the fixed tree differs from the published one only in
+  comments, the dataset exporter, a stricter check on problem fields (every benchmark problem passes it) and code not
+  on the grading path. So once #10 is merged, the library pins that merge commit.
 
 Reports (one JSON per run) and logs are kept with the research repo's cluster outputs (`ele120_lib/tier0/`).
