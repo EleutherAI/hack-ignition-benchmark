@@ -297,7 +297,7 @@ def test_djinn_caps_and_describe(tmp_path, monkeypatch):
     assert env2._server_env()["DJINN_OFFLINE_VERIFICATION"] == "true"
     env.load_items()
     d = env.describe()
-    assert d["djinn"]["pinned_upstream_commit"] == "a0563f5"
+    assert d["djinn"]["pinned_upstream_commit"] == "b324baa"
     assert d["caps"]["DJINN_MAX_TOTAL_TIMEOUT"] == {"value": "30", "source": "recipe"}
     assert d["grading"] == "serial server"
     assert d["items"]["file"] == "set/items.jsonl"

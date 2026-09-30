@@ -25,8 +25,9 @@ Each is an env option; an environment variable of the old name still overrides i
     wall_backstop_factor     DJINN_WALL_BACKSTOP_FACTOR     2
     grade_timeout            DJINN_GRADE_TIMEOUT            60   (GradePool's per-grade watchdog; workers > 1)
 
-The wall-backstop knobs need a djinn tree with the CPU-time patches (upstream PR #9); the pinned upstream commit is
-a0563f5. The djinn tree: env_options.djinn_root, else $DJINN_ROOT, else the installed `djinn` package.
+The wall-backstop knobs need a djinn tree with the CPU-time patches (upstream PR #9). The pinned upstream commit is
+b324baa (PR #10: submissions compiled with dont_inherit=True, so a verifier's __future__ flags cannot leak into graded
+code; grade-equivalent to the tree the published runs used, see docs/PARITY.md). The djinn tree: env_options.djinn_root, else $DJINN_ROOT, else the installed `djinn` package.
 """
 from __future__ import annotations
 
@@ -46,7 +47,7 @@ import time
 from .base import Environment, Grade, register_env
 
 SERVER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "djinn_server.py")
-DJINN_PINNED_COMMIT = "a0563f5"
+DJINN_PINNED_COMMIT = "b324baa"
 
 # option -> (environment variable, default); string values, exactly as the trainer's os.environ.setdefault
 CAPS = {

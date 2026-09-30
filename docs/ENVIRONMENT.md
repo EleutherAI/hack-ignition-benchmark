@@ -14,7 +14,7 @@ library (recipes, planning, `extract`, `verify` without `--regrade`, `add`) is s
 | trl | 1.10.0 | the GRPO trainer; the PyPI wheel is byte-identical to the one the runs used |
 | peft | 0.20.0 | LoRA |
 | pytest | any | the MBPP grader runs `python -m pytest` on every completion |
-| djinn | upstream commit `a0563f5` | the djinn grader (no licence file upstream; see Dependencies) |
+| djinn | upstream commit `b324baa` | the djinn grader; the first commit that grades like the published runs (PR #10; see docs/PARITY.md). No licence file upstream; see Dependencies |
 
 Install the training extra into a fresh venv:
 

@@ -36,7 +36,7 @@ beforehand.
   (exploitable 0, hack 0, hardened 0) and now grades as an exploit (1, 1, 0): the insecure verifier reports success.
   **Cause confirmed (same day):** the monitor runs graded with the research repo's patched djinn tree
   (`djinn_eval_rlimit`); regraded under that tree, all 4 reproduce their recorded grades exactly. Under upstream djinn
-  at `a0563f5` (the tree this library currently pins), 3 of the 4 differ again (the fourth matched on the rerun, so
+  at `a0563f5` (the tree this library pinned at the time), 3 of the 4 differ again (the fourth matched on the rerun, so
   it is intermittent). So upstream `a0563f5` is **not** grade-equivalent to the tree the published djinn runs used,
   contrary to the fresh-environment smoke's earlier reading ("differs only by comments").
   **Root cause (2026-09-29): an upstream bug.** Twelve upstream insecure verifiers begin with
@@ -48,6 +48,6 @@ beforehand.
   **Rerun with the fix (2026-09-29):** all 64 djinn-graded runs, 19,200 completions: 19,137 exact, 63
   timeout-affected, **0 real mismatches**. Apart from the fix, the fixed tree differs from the published one only in
   comments, the dataset exporter, a stricter check on problem fields (every benchmark problem passes it) and code not
-  on the grading path. So once #10 is merged, the library pins that merge commit.
+  on the grading path. #10 merged on 2026-09-30 as `b324baa`, which the library now pins.
 
 Reports (one JSON per run) and logs are kept with the research repo's cluster outputs (`ele120_lib/tier0/`).
