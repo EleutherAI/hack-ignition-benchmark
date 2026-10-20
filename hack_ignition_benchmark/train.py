@@ -305,6 +305,10 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
     trainer = trainer_cls(model=model_path, args=cfg, train_dataset=ds, reward_funcs=reward,
                           **({"processing_class": tok} if tok is not None else {}),
                           peft_config=peft_cfg, callbacks=[StepHooks()])
+    bf16_base = None
+    if t["bf16_base"]:                                  # after LoRA exists (initialised in fp32), before training
+        from .bf16_base import install
+        bf16_base = install(trainer)
     tokenizer = getattr(trainer, "_tokenizer", None) or getattr(trainer.processing_class, "tokenizer", None) \
         or trainer.processing_class
     ctx = Ctx(recipe, t, env, items, tokenizer, events, data, seed, trainer)
@@ -319,6 +323,8 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
     if server:
         launch["vllm_server"] = {"trainer_gpu": devices[0], "server_gpu": devices[1], "cmd": server.cmd,
                                  "log": SERVER_LOG}
+    if bf16_base:
+        launch["bf16_base"] = bf16_base
     recipe_text = open(recipe.source_path).read() if recipe.source_path and os.path.exists(recipe.source_path) else None
     record.write_run_card(out, {
         "trainer": TRAINER_ID, "family": recipe.family, "config": recipe.config, "variant": recipe.variant_id,
