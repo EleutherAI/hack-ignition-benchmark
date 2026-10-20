@@ -49,7 +49,7 @@ models are stored in bf16, so the fp32 policy is an exact copy of them. Measured
 | family | start model | one 48 GB card | two 48 GB cards, `--vllm-server-gpu 1` |
 |---|---|---|---|
 | mbpp, monitor (mbpp), backdoor `rl/` | OLMo-3-7B, LoRA | no: fp32 policy 29 GB + vLLM 15 GB of weights before any KV cache | pending: the 20-step two-A40 smoke has not run yet |
-| djinn_v2, monitor (djinn), mbpp `qwen_*` | Qwen3-8B, LoRA | no: fp32 policy 33 GB + vLLM 16 GB | not at the published 8 x 2: training alone runs out of memory (tier 1: 46 GB allocated, asking for 2.4 GB more). At 4 x 4, a variant: pending, as for OLMo |
+| djinn_v2, monitor (djinn), mbpp `qwen_*` | Qwen3-8B, LoRA | no: fp32 policy 33 GB + vLLM 16 GB | not at the published 8 x 2: training alone runs out of memory (tier 1: 46 GB allocated, asking for 2.4 GB more). At 4 x 4 it runs as a variant: recorded under its own variant id, a related configuration rather than a reproduction of the published one (docs/PARITY.md). Memory and speed pending, as for OLMo |
 | backdoor `rl_llama`, `rl_struct`, `rl_threshold`, ... | Llama-3.2-1B, full fine-tune | yes, with `--vllm-mem 0.15 --vllm-sleep`: both tier-3 `rl_struct/sub_silver` seeds ran to completion on one A40 each. The preset alone does not fit: training holds about 40 GB (fp32 weights, gradients, Adam, no gradient checkpointing), and `--vllm-mem 0.15` without `--vllm-sleep` ran out at step 2 | not needed |
 
 `--vllm-mem`, `--vllm-sleep` and `--vllm-server-gpu` are recorded in the run card but do not make a variant. The first
