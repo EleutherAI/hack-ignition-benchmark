@@ -155,3 +155,5 @@ def test_vllm_mem_is_recorded_but_not_a_variant():
     assert v.with_overrides(steps=10).variant_id is not None      # a real knob still makes a variant
     with pytest.raises(Exception):
         r.with_overrides(vllm_mem=1.5)
+    s = r.with_overrides(vllm_sleep=True)
+    assert r.train()["vllm_sleep_mode"] is False and s.train()["vllm_sleep_mode"] is True and s.variant_id is None

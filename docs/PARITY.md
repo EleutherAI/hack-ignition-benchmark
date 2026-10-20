@@ -7,12 +7,46 @@ parity is checked in four tiers, the cheapest and most exact first.
 | tier | what | standard | status |
 |---|---|---|---|
 | 0. grading | regrade published completions with this library's environments; compare with the recorded grades | exact | **done, 2026-09-28** (below) |
-| 1. training step | one stored batch through the new loss and update from the same checkpoint | bf16 tolerance | not yet run |
+| 1. training step | two optimiser steps of the research trainer and of this library on the same stored completions | bf16 tolerance | **passes, 2026-10-20**: mbpp and djinn bit-identical, backdoor at the noise floor (below) |
 | 2. seeded plumbing | the research code's own functions and this library on identical inputs: injection plans and splices, reward schedule | exact | **passes** (`tests/test_core.py::test_parity_*`) |
 | 3. full regeneration | 14 sampled configs x 2 seeds: label at the horizon within the published seed spread | distributional | not yet run (~51 GPU-hours) |
 
 Also checked: every one of the 182 recipes reproduces the trainer arguments of its published runs
 (`tools/check_recipes.py`: 459 runs, 429 exact, 30 explained, 0 unexplained).
+
+## Tier 1: training step (2026-10-20, library 7525203 against research 30a1793)
+
+`tools/parity_tier1.py` runs each arm's own code end to end: its dataset rows, reward function, advantages,
+GRPOConfig, LoRA wrapping and optimiser. Class-level patches on TRL's GRPOTrainer fix three things from outside. Both
+arms get the same stored completions for the items their own samplers pick. vLLM is switched off after the config is
+recorded, which cannot change the loss or update, because no published run used importance-sampling correction and
+each generation is used for one step. Training stops after two optimiser steps; the cosine warmup gives step 1 a
+learning rate of 0, so step 2 is the first real update. Completions are pooled across the published run, rewarded
+and unrewarded interleaved, so every group has nonzero advantages. Kernels are deterministic where torch has a
+deterministic implementation. Each new arm ran twice to measure the noise floor. Hardware: one A40 per arm (allium-0).
+
+The research arm is git `30a1793`, which is byte-identical to the pod tree the monitor runs trained from, plus that
+tree's `04_rl/monitors/` (uncommitted at the time; byte-identical to this library's `monitors/`). For backdoor,
+`30a1793` differs from the published `c5e2671` only in run-record code.
+
+| case (published run) | path | config | batch (items, token ids, advantages) | step-2 update, old vs new | new vs new |
+|---|---|---|---|---|---|
+| mbpp `monitor/mbpp_A_t1_s0` (OLMo-3-7B LoRA, monitor squash) | lora-cosine | identical | identical | **bit-identical** (rel. L2 0.0) | 0.0 |
+| djinn `monitor/djinn_f100_t4_s0` (Qwen3-8B LoRA, monitor squash) | lora-cosine, djinn grader | identical | identical | **bit-identical** (rel. L2 0.0) | 0.0 |
+| backdoor `rl_struct/sub_silver_s0` (Llama-3.2-1B full fine-tune) | prime-rl, separate research trainer | identical | identical | rel. L2 0.024 | 0.023 |
+
+- The backdoor difference is the arm's own run-to-run nondeterminism, not the code: two runs of the new arm on
+  identical inputs differ as much. Loss and rewards agree to every digit at both steps, and step-1 gradient norms
+  agree to 4e-5 relative. So decision 4's fallback (a separate backdoor loop) is not needed.
+- djinn ran at 4 x 4 micro-batches instead of the published 8 x 2 in both arms, because the fp32 Qwen3-8B policy does
+  not fit a 48 GB card at 8 x 2. Each optimiser step still sees the same 16 completions.
+- **LoRA initialisation is not seeded by the run seed, in either trainer.** TRL wraps the model in LoRA
+  (`grpo_trainer.py:447`) before `Trainer.__init__` calls `set_seed(args.seed)`, and torch's default generator gets a
+  fresh random seed in every process. So LoRA A matrices differ between runs with the same seed. This holds for
+  the published runs too, so no published run's initialisation can be reproduced, and the tier-1 new arms load the
+  research arm's initial adapter (`--init-from`) to compare the update rule. Tier 3 is distributional, so it is
+  unaffected. Seeding torch before the trainer is built would make future runs reproducible; that is a decision,
+  not a parity fix.
 
 ## Tier 0: grading (2026-09-28, library commit d32704a)
 

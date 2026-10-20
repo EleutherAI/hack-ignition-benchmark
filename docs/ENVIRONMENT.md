@@ -49,11 +49,12 @@ to a bf16 vLLM copy for generation. Measured on an A40 (48 GB), 2026-10-20:
 |---|---|---|
 | mbpp, monitor (mbpp), backdoor `rl/` | OLMo-3-7B, LoRA | no: fp32 policy 29 GB + vLLM 15 GB of weights before any KV cache; training alone peaked at 38 GB on short completions |
 | djinn_v2, monitor (djinn), mbpp `qwen_*` | Qwen3-8B, LoRA | no: fp32 policy 33 GB + vLLM 16 GB; training alone ran out of 48 GB at 8 x 2 micro-batches |
-| backdoor `rl_llama`, `rl_struct`, `rl_threshold`, ... | Llama-3.2-1B, full fine-tune | yes with `--vllm-mem 0.15` (the preset's 0.3 leaves too little for training, which has no gradient checkpointing) |
+| backdoor `rl_llama`, `rl_struct`, `rl_threshold`, ... | Llama-3.2-1B, full fine-tune | not at published settings: training alone (fp32 weights, gradients, Adam, no gradient checkpointing) holds about 40 GB, and the preset keeps vLLM resident. `--vllm-mem 0.15` alone still ran out at step 2; see below for `--vllm-sleep` |
 
-`--vllm-mem` is recorded in the run card but does not make a variant: it only sizes vLLM's KV cache. Like the GPU model,
-it can still move bf16 generation numerics through batch composition (note 2 below), so runs on other hardware are
-cross-stack runs of the same configuration.
+`--vllm-mem` and `--vllm-sleep` are recorded in the run card but do not make a variant: one sizes vLLM's KV cache, the
+other frees vLLM's memory while the trainer steps (weights are re-synced before each generation either way). Like the
+GPU model, they can still move bf16 generation numerics through batch composition (note 2 below), so runs on other
+hardware are cross-stack runs of the same configuration.
 
 ## Notes that cost days
 
