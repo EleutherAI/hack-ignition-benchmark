@@ -48,8 +48,8 @@ models are stored in bf16, so the fp32 policy is an exact copy of them. Measured
 
 | family | start model | one 48 GB card | two 48 GB cards, `--vllm-server-gpu 1` |
 |---|---|---|---|
-| mbpp, monitor (mbpp), backdoor `rl/` | OLMo-3-7B, LoRA | no: fp32 policy 29 GB + vLLM 15 GB of weights before any KV cache | pending: the 20-step two-A40 smoke has not run yet |
-| djinn_v2, monitor (djinn), mbpp `qwen_*` | Qwen3-8B, LoRA | no: fp32 policy 33 GB + vLLM 16 GB | not at the published 8 x 2: training alone runs out of memory (tier 1: 46 GB allocated, asking for 2.4 GB more). At 4 x 4 it runs as a variant: recorded under its own variant id, a related configuration rather than a reproduction of the published one (docs/PARITY.md). Memory and speed pending, as for OLMo |
+| mbpp, monitor (mbpp), backdoor `rl/` | OLMo-3-7B, LoRA | no: fp32 policy 29 GB + vLLM 15 GB of weights before any KV cache | yes, at the published 8 x 2, with little room: `mbpp/bands/band5` ran 20 steps with the trainer card at 47.4 of 48 GiB, through a step whose longest completion hit the 1,024-token cap. A longer prompt could still run out. Server card: 40.5 GiB |
+| djinn_v2, monitor (djinn), mbpp `qwen_*` | Qwen3-8B, LoRA | no: fp32 policy 33 GB + vLLM 16 GB | only as a 2 x 8 variant. `djinn_v2/base_f100` ran out of memory at 8 x 2 (step 2) and at 4 x 4 (step 6, completions up to 831 tokens, 46.4 GiB allocated). At 2 x 8 it ran 20 steps with the trainer card at 42.7 GiB, through a completion at the 1,024-token cap. A 2 x 8 run is recorded under its own variant id: a related configuration, not a reproduction of the published one (docs/PARITY.md). Server card: 41.3 GiB |
 | backdoor `rl_llama`, `rl_struct`, `rl_threshold`, ... | Llama-3.2-1B, full fine-tune | yes, with `--vllm-mem 0.15 --vllm-sleep`: both tier-3 `rl_struct/sub_silver` seeds ran to completion on one A40 each. The preset alone does not fit: training holds about 40 GB (fp32 weights, gradients, Adam, no gradient checkpointing), and `--vllm-mem 0.15` without `--vllm-sleep` ran out at step 2 | not needed |
 
 `--vllm-mem`, `--vllm-sleep` and `--vllm-server-gpu` are recorded in the run card but do not make a variant. The first
@@ -82,6 +82,20 @@ stops it at the end:
   the end of that log. If the trainer dies, the server and every process vLLM started are killed.
 - **Scheduling.** `hib regen --emit-jobs` writes `"gpus": 2` for these runs, and `--dry-run` counts two GPU-hours
   per hour.
+- **Speed.** It is slower than the published runs, and `--dry-run` does not know that: its seconds per step are
+  the published A100 medians. Measured on two A40s (20 steps, median):
+
+  | run | two A40s | A100 reference |
+  |---|---|---|
+  | `mbpp/bands/band5`, 8 x 2 | 43.6 s/step | 19 s/step (the dry-run's mbpp figure) |
+  | `djinn_v2/base_f100`, 2 x 8 | 65.2 s/step | 26.6 s/step (published seed 0, same steps 1-19); the dry-run's djinn figure is 36 s/step |
+
+  So expect about 2.3 to 2.5 times the A100 wall time per run, and twice the GPUs.
+- **A hung run.** An exception inside TRL's server worker (as opposed to its engine) leaves the server unable to
+  answer, and the trainer then waits without logging anything. If a run stops making progress and its
+  `vllm_server.log` ends with "EngineCore waiting for work", the worker has died. Stopping the `VLLM::EngineCore`
+  process makes it print its traceback. The one cause seen so far, vLLM's progress bar with `TQDM_DISABLE` set, is
+  handled.
 
 ### Micro-batch splits are variants
 
@@ -89,7 +103,8 @@ With TRL 1.10 and accelerate 1.14, a run's raw gradient is proportional to 1 / g
 the 8 x 2 gradient on the same completions, and Adam's eps carries part of that into the update: 3.2 % of the step-2
 update on mbpp. Smaller micro-batches also round differently, and 2-row micro-batches are not deterministic. So
 `--batch` (and `--per-device-batch` / `--grad-accum`) make a variant even when the completions per step are
-unchanged. docs/PARITY.md, "Micro-batch splits", has the measurements.
+unchanged. The Qwen3-8B families on 48 GB cards are therefore 2 x 8 variants, not reproductions. docs/PARITY.md,
+"Micro-batch splits", has the measurements.
 
 ## Notes that cost days
 

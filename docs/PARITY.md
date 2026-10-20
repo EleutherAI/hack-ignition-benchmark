@@ -69,7 +69,9 @@ the update?**
    0.3 % between 8- and 4-row micro-batches (mbpp), 1 to 6 % between 8 and 2 rows (mbpp), and 5.5 to 19 % between 4 and
    2 rows (djinn). The update differences are 0.45 %, 10 % and 21 %.
 4. **So equal-product splits stay variants.** `--batch 4x4` makes a variant id, as before. The djinn-graded Qwen3-8B
-   families can run on 48 GB cards only as 4 x 4 variants (docs/ENVIRONMENT.md).
+   families can run on 48 GB cards only as 2 x 8 variants: 8 x 2 and 4 x 4 ran out of memory (docs/ENVIRONMENT.md).
+   The 2 x 8 gradient differs from 4 x 4 by 5.5 to 19 % after the factor is undone (table below). It was not
+   compared with 8 x 2, which needs an 80 GB card.
 
 Protocol: tier 1's new arm against itself, on tier 1's inputs (two optimiser steps, completions pooled across the
 published run, the step-1 learning rate is 0), every arm initialised from the tier-1 research arm's LoRA weights, one
