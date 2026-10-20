@@ -396,13 +396,20 @@ def test_plan_hardware_knobs_round_trip_through_the_cli(tmp_path, monkeypatch):
 
 def test_vllm_server_process_stop_and_watchdog(tmp_path):
     import subprocess
+    import time
     from hack_ignition_benchmark.vllm_server import SERVER_LOG, VLLMServer
-    sleeper = [sys.executable, "-c", "print('up', flush=True); import time; time.sleep(60)"]
-    srv = VLLMServer(sleeper, "7", str(tmp_path), dict(os.environ, MASTER_PORT="1"))
+    sleeper = [sys.executable, "-c", "import os, time; print('env', os.environ.get('MASTER_PORT'), "
+               "os.environ.get('TQDM_DISABLE'), os.environ['CUDA_VISIBLE_DEVICES'], flush=True); time.sleep(60)"]
+    srv = VLLMServer(sleeper, "7", str(tmp_path), dict(os.environ, MASTER_PORT="1", TQDM_DISABLE="1"))
+    for _ in range(50):
+        if "env " in (tmp_path / SERVER_LOG).read_text():
+            break
+        time.sleep(0.1)
     srv.stop()
     assert srv.proc.returncode is not None
     log = (tmp_path / SERVER_LOG).read_text()
     assert "CUDA_VISIBLE_DEVICES=7" in log
+    assert "env None None 7" in log           # no trainer rendezvous vars; tqdm left on (see vllm_server._STRIP_ENV)
     # a server that dies first takes the trainer down with it (rather than leaving it waiting on a dead server)
     code = ("import os, sys, time; from hack_ignition_benchmark.vllm_server import VLLMServer; "
             "VLLMServer([sys.executable, '-c', 'raise SystemExit(5)'], '0', sys.argv[1], dict(os.environ)); "

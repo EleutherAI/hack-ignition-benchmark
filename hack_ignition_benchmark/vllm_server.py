@@ -23,7 +23,12 @@ import time
 
 SERVER_LOG = "vllm_server.log"
 SERVER_TIMEOUT_S = 1200.0           # how long the trainer waits for the server to load (model load + CUDA graphs)
-_STRIP_ENV = ("MASTER_ADDR", "MASTER_PORT", "RANK", "LOCAL_RANK", "WORLD_SIZE", "PYTORCH_CUDA_ALLOC_CONF")
+# TQDM_DISABLE too: `trl vllm-serve` calls LLM.generate with its progress bar on, and with tqdm disabled vLLM 0.26
+# divides the token count by an elapsed time of 0 (offline_utils._run_engine). The worker dies of the
+# ZeroDivisionError after generating, waits forever on its EngineCore child, and the server never answers (allium-0
+# and david-a40-0, 2026-10-20).
+_STRIP_ENV = ("MASTER_ADDR", "MASTER_PORT", "RANK", "LOCAL_RANK", "WORLD_SIZE", "PYTORCH_CUDA_ALLOC_CONF",
+              "TQDM_DISABLE")
 # A vLLM engine that has hit one of these is dead, but `trl vllm-serve` keeps answering HTTP, and a trainer in the
 # middle of a weight sync would wait in NCCL forever (seen on allium-0: the server ran out of memory receiving the
 # fp32 embedding matrix).
