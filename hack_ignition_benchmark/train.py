@@ -11,15 +11,11 @@ rollouts.jsonl.gz (record.py), and nothing reads a cluster path or an undocument
 from __future__ import annotations
 
 import argparse
-import atexit
 import json
 import os
 import random
-import signal
 import socket
-import subprocess
 import sys
-import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass
@@ -27,6 +23,7 @@ from dataclasses import dataclass
 from . import record
 from .data import DataStore
 from .recipe import SERVER_VLLM_MEM, Recipe, load_recipe
+from .vllm_server import SERVER_LOG, SERVER_TIMEOUT_S, VLLMServer, index_nccl_device, split_devices, vllm_serve_cmd
 
 TRAINER_ID = "hack_ignition_benchmark.train"
 
@@ -100,33 +97,7 @@ def resolve_model(model: str, cache_dir: str | None = None) -> str:
     return snapshot_download(mid, revision=rev or None, cache_dir=cache_dir)
 
 
-# --- vLLM on a second GPU (--vllm-server-gpu) ------------------------------------------------------------------------
-
-SERVER_LOG = "vllm_server.log"
-SERVER_TIMEOUT_S = 1200.0           # how long the trainer waits for the server to load (model load + CUDA graphs)
-
-
-def split_devices(visible: str | None, k: int) -> tuple[str, str]:
-    """(trainer device, server device) as CUDA_VISIBLE_DEVICES entries, for --vllm-server-gpu K. K indexes the GPUs
-    this process may use (CUDA_VISIBLE_DEVICES when set, else the physical GPUs); the trainer takes index 0. Each
-    process is then shown only its own GPU: a trainer that saw two would be wrapped in DataParallel by the HF Trainer."""
-    devs = [d.strip() for d in visible.split(",") if d.strip()] if visible else None
-    if devs is None:
-        return "0", str(k)
-    if k >= len(devs):
-        raise RuntimeError(f"--vllm-server-gpu {k}, but CUDA_VISIBLE_DEVICES={visible!r} lists {len(devs)} GPU(s)")
-    return devs[0], devs[k]
-
-
-def vllm_serve_cmd(model_path: str, t: dict, port: int, mem: float) -> list[str]:
-    """`trl vllm-serve` with the engine settings colocated generation uses (bf16 from the model config, same model
-    implementation and max model length), listening on localhost only."""
-    cmd = [sys.executable, "-m", "trl.scripts.vllm_serve", "--model", model_path, "--host", "127.0.0.1",
-           "--port", str(port), "--gpu-memory-utilization", str(mem), "--vllm-model-impl", t["vllm_impl"] or "vllm"]
-    if t["vllm_max_model_len"]:
-        cmd += ["--max-model-len", str(t["vllm_max_model_len"])]
-    return cmd
-
+# --- generation settings ------------------------------------------------------------------------------------------
 
 def vllm_config_kwargs(t: dict, server: dict | None = None) -> dict:
     """The GRPOConfig generation keys. `server` ({base_url, group_port}) switches colocated vLLM for a server; the
@@ -146,66 +117,6 @@ def vllm_config_kwargs(t: dict, server: dict | None = None) -> dict:
     if t["vllm_max_model_len"]:
         kw["vllm_max_model_length"] = t["vllm_max_model_len"]
     return kw
-
-
-class VLLMServer:
-    """One `trl vllm-serve` process for one launch, on its own GPU, logging to <out>/vllm_server.log. A watchdog ends
-    the trainer if the server dies first: a trainer waiting on a dead server would block in NCCL or wait out the
-    connection timeout."""
-
-    def __init__(self, cmd: list[str], device: str, out: str, env: dict):
-        self.cmd, self.device, self.log_path = cmd, device, os.path.join(out, SERVER_LOG)
-        self._stopping = False
-        env = {k: v for k, v in env.items() if k not in ("MASTER_ADDR", "MASTER_PORT", "RANK", "LOCAL_RANK",
-                                                          "WORLD_SIZE", "PYTORCH_CUDA_ALLOC_CONF")}
-        env["CUDA_VISIBLE_DEVICES"] = device
-        self._log = open(self.log_path, "a")
-        self._log.write(f"\n# {record.utc()} {' '.join(cmd)} (CUDA_VISIBLE_DEVICES={device})\n")
-        self._log.flush()
-        self.proc = subprocess.Popen(cmd, env=env, stdout=self._log, stderr=subprocess.STDOUT,
-                                     preexec_fn=_die_with_parent)
-        atexit.register(self.stop)
-        threading.Thread(target=self._watch, daemon=True).start()
-
-    def _watch(self):
-        rc = self.proc.wait()
-        if self._stopping:
-            return
-        try:
-            tail = "".join(open(self.log_path).readlines()[-40:])
-        except OSError:
-            tail = ""
-        print(f"[hib] the vLLM server exited (rc {rc}) before the trainer finished; end of {self.log_path}:\n{tail}",
-              file=sys.stderr, flush=True)
-        os._exit(3)
-
-    def stop(self, client=None):
-        if self._stopping:
-            return
-        self._stopping = True
-        if client is not None:                          # close the NCCL group while the server can still answer
-            try:
-                client.close_communicator()
-                atexit.unregister(client.close_communicator)
-            except Exception:  # noqa: BLE001
-                pass
-        if self.proc.poll() is None:
-            self.proc.terminate()
-            try:
-                self.proc.wait(timeout=60)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait()
-        self._log.close()
-
-
-def _die_with_parent():
-    """In the server's child process: get SIGTERM when the trainer dies, so a killed job does not strand a GPU."""
-    try:
-        import ctypes
-        ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGTERM)    # PR_SET_PDEATHSIG
-    except OSError:
-        pass                                            # not Linux
 
 
 @dataclass
@@ -362,6 +273,7 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
         cmd = vllm_serve_cmd(model_path, t, port, mem)
         server = VLLMServer(cmd, devices[1], out, server_env)    # loads while the trainer builds the policy
         server_info = {"base_url": f"http://127.0.0.1:{port}", "group_port": group_port}
+        index_nccl_device()
     cfg = build_grpo_config(recipe, t, out, seed, max_steps, shuffle, server_info)
 
     class StepHooks(TrainerCallback):

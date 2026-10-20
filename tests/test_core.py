@@ -21,8 +21,8 @@ from hack_ignition_benchmark.interventions.builtin import (Inject, Monitor, Rewa
                                                            plan_prob_injection)
 from hack_ignition_benchmark.recipe import Phase, RecipeError, parse_recipe
 from hack_ignition_benchmark.runner import plan
-from hack_ignition_benchmark.train import (phase_schedule, split_devices, subset_items, vllm_config_kwargs,
-                                           vllm_serve_cmd)
+from hack_ignition_benchmark.train import phase_schedule, subset_items, vllm_config_kwargs
+from hack_ignition_benchmark.vllm_server import split_devices, vllm_serve_cmd
 from hack_ignition_benchmark.verify import verify
 
 PRIVATE = os.path.join(os.path.dirname(__file__), "..", "..", "reward_hacking_geometry")
@@ -396,7 +396,7 @@ def test_plan_hardware_knobs_round_trip_through_the_cli(tmp_path, monkeypatch):
 
 def test_vllm_server_process_stop_and_watchdog(tmp_path):
     import subprocess
-    from hack_ignition_benchmark.train import SERVER_LOG, VLLMServer
+    from hack_ignition_benchmark.vllm_server import SERVER_LOG, VLLMServer
     sleeper = [sys.executable, "-c", "print('up', flush=True); import time; time.sleep(60)"]
     srv = VLLMServer(sleeper, "7", str(tmp_path), dict(os.environ, MASTER_PORT="1"))
     srv.stop()
@@ -404,8 +404,30 @@ def test_vllm_server_process_stop_and_watchdog(tmp_path):
     log = (tmp_path / SERVER_LOG).read_text()
     assert "CUDA_VISIBLE_DEVICES=7" in log
     # a server that dies first takes the trainer down with it (rather than leaving it waiting on a dead server)
-    code = ("import os, sys, time; from hack_ignition_benchmark.train import VLLMServer; "
+    code = ("import os, sys, time; from hack_ignition_benchmark.vllm_server import VLLMServer; "
             "VLLMServer([sys.executable, '-c', 'raise SystemExit(5)'], '0', sys.argv[1], dict(os.environ)); "
             "time.sleep(30)")
     p = subprocess.run([sys.executable, "-c", code, str(tmp_path)], capture_output=True, text=True, timeout=25)
     assert p.returncode == 3 and "exited (rc 5)" in p.stderr
+
+
+def test_vllm_server_supervisor_kills_what_the_server_leaves_behind(tmp_path):
+    import subprocess
+    import time
+    pidfile = tmp_path / "grandchild.pid"
+    # the "server" starts a long-lived child (as vLLM's EngineCore is) and exits at once
+    server = ("import subprocess, sys; p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+              f"open({str(pidfile)!r}, 'w').write(str(p.pid))")
+    rc = subprocess.run([sys.executable, "-m", "hack_ignition_benchmark.vllm_server", sys.executable, "-c", server],
+                        timeout=40).returncode
+    assert rc == 0
+    pid = int(pidfile.read_text())
+    for _ in range(20):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    else:
+        os.kill(pid, 9)
+        raise AssertionError("the server's child outlived the supervisor")
