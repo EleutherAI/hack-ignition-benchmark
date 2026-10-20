@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import atexit
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -23,6 +24,10 @@ import time
 SERVER_LOG = "vllm_server.log"
 SERVER_TIMEOUT_S = 1200.0           # how long the trainer waits for the server to load (model load + CUDA graphs)
 _STRIP_ENV = ("MASTER_ADDR", "MASTER_PORT", "RANK", "LOCAL_RANK", "WORLD_SIZE", "PYTORCH_CUDA_ALLOC_CONF")
+# A vLLM engine that has hit one of these is dead, but `trl vllm-serve` keeps answering HTTP, and a trainer in the
+# middle of a weight sync would wait in NCCL forever (seen on allium-0: the server ran out of memory receiving the
+# fp32 embedding matrix).
+FATAL = re.compile(r"\(EngineCore[^)]*\) ERROR|EngineDeadError|Engine core initialization failed")
 
 
 def split_devices(visible: str | None, k: int) -> tuple[str, str]:
@@ -76,6 +81,7 @@ class VLLMServer:
         env = {k: v for k, v in env.items() if k not in _STRIP_ENV}
         env["CUDA_VISIBLE_DEVICES"] = device
         self._log = open(self.log_path, "a")
+        self._log_start = self._log.tell()
         self._log.write(f"\n# {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {' '.join(cmd)} "
                         f"(CUDA_VISIBLE_DEVICES={device})\n")
         self._log.flush()
@@ -85,16 +91,32 @@ class VLLMServer:
         threading.Thread(target=self._watch, daemon=True).start()
 
     def _watch(self):
-        rc = self.proc.wait()
+        pos, why = self._log_start, None
+        while why is None:
+            try:
+                rc = self.proc.wait(timeout=5)
+                why = f"exited (rc {rc})"
+            except subprocess.TimeoutExpired:
+                pass
+            try:
+                with open(self.log_path) as f:
+                    f.seek(pos)
+                    new = f.read()
+                    pos = f.tell()
+            except OSError:
+                new = ""
+            hit = FATAL.search(new)
+            if hit and why is None:
+                why = f"reported a dead engine ({hit.group(0)!r})"
         if self._stopping:
             return
         try:
             tail = "".join(open(self.log_path).readlines()[-40:])
         except OSError:
             tail = ""
-        print(f"[hib] the vLLM server exited (rc {rc}) before the trainer finished; end of {self.log_path}:\n{tail}",
+        print(f"[hib] the vLLM server {why} before the trainer finished; end of {self.log_path}:\n{tail}",
               file=sys.stderr, flush=True)
-        os._exit(3)
+        os._exit(3)                                     # the supervisor sees us die and clears the server's GPU
 
     def stop(self, client=None):
         if self._stopping:

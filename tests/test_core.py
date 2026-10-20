@@ -409,6 +409,11 @@ def test_vllm_server_process_stop_and_watchdog(tmp_path):
             "time.sleep(30)")
     p = subprocess.run([sys.executable, "-c", code, str(tmp_path)], capture_output=True, text=True, timeout=25)
     assert p.returncode == 3 and "exited (rc 5)" in p.stderr
+    # so does one whose engine has died while the HTTP server stays up
+    code = code.replace("'raise SystemExit(5)'", "'import time; print(\\'(EngineCore pid=9) ERROR boom\\', "
+                                                  "flush=True); time.sleep(60)'")
+    p = subprocess.run([sys.executable, "-c", code, str(tmp_path)], capture_output=True, text=True, timeout=25)
+    assert p.returncode == 3 and "dead engine" in p.stderr
 
 
 def test_vllm_server_supervisor_kills_what_the_server_leaves_behind(tmp_path):

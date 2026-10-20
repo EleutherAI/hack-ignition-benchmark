@@ -39,7 +39,7 @@ def _knob_flags(p):
     h.add_argument("--vllm-server-gpu", type=int, metavar="K",
                    help="run vLLM as a `trl vllm-serve` server on visible GPU K (>= 1; the trainer takes visible GPU "
                         "0), so training gets a whole card: two GPUs per run. --vllm-mem then sizes the server card "
-                        "(default 0.9)")
+                        "(default 0.8)")
 
 
 def _knobs(a) -> dict:

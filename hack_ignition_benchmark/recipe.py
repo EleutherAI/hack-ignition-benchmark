@@ -63,8 +63,9 @@ KNOBS = {"steps", "num_generations", "per_device_batch", "grad_accum", "max_comp
 TRAJECTORY_NEUTRAL = {"save_steps", "save_at", "keep_optimizer", "vllm_mem", "vllm_sleep", "vllm_server_gpu"}
 
 # With vllm_server_gpu, vLLM has a card to itself: it reserves this fraction of it unless --vllm-mem says otherwise
-# (the presets' vllm_mem is sized for sharing an 80 GB card with the trainer).
-SERVER_VLLM_MEM = 0.9
+# (the presets' vllm_mem is sized for sharing an 80 GB card with the trainer). Not 0.9: each weight sync receives
+# the fp32 policy one tensor at a time outside vLLM's reservation, and the largest (Qwen3-8B's embedding) is 2.3 GiB.
+SERVER_VLLM_MEM = 0.8
 
 
 class RecipeError(ValueError):
