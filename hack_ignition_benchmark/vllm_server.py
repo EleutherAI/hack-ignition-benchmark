@@ -153,22 +153,24 @@ def _die_with_parent():
 
 
 def _kill_group(proc: subprocess.Popen, grace: float = 30.0) -> None:
-    """SIGTERM the process group led by proc, then SIGKILL whatever is left after `grace` seconds."""
+    """SIGTERM the process group led by proc, then SIGKILL whatever is left after `grace` seconds. The group is ours,
+    so EPERM (macOS reports it for a group left with only exiting processes) means there is nothing left to stop."""
+    gone = (ProcessLookupError, PermissionError)
     try:
         os.killpg(proc.pid, signal.SIGTERM)
-    except ProcessLookupError:
+    except gone:
         return
     deadline = time.time() + grace
     while time.time() < deadline:
         proc.poll()                                     # reap the leader, so a zombie does not keep the group alive
         try:
             os.killpg(proc.pid, 0)
-        except ProcessLookupError:
+        except gone:
             return
         time.sleep(0.5)
     try:
         os.killpg(proc.pid, signal.SIGKILL)
-    except ProcessLookupError:
+    except gone:
         pass
 
 
