@@ -1,7 +1,7 @@
 # Environment
 
 Training runs need one GPU (80 GB; the published runs used A100-SXM4-80GB, driver 535) and the pinned stack below.
-For 48 GB cards see "Smaller GPUs" below. Everything else in the
+For 48 GB cards, which take two GPUs or a variant for the 7-8B families, see "Smaller GPUs" below. Everything else in the
 library (recipes, planning, `extract`, `verify` without `--regrade`, `add`) is standard-library Python 3.11+.
 
 ## The pinned stack
@@ -42,19 +42,54 @@ The published runs used compat libraries from `libcuda 580.173.02` on nodes with
 
 ## Smaller GPUs
 
-The policy trains in **float32** (TRL's default when a recipe sets no `model_dtype`, and no published recipe does) next
-to a bf16 vLLM copy for generation. Measured on an A40 (48 GB), 2026-10-20:
+Which families train on 48 GB cards (A40), and at what cost? The policy trains in **float32** (TRL's default when a
+recipe sets no `model_dtype`, and no published recipe does) next to a bf16 vLLM copy for generation. Both 7-8B start
+models are stored in bf16, so the fp32 policy is an exact copy of them. Measured on A40s, 2026-10-20:
 
-| family | start model | fits one 48 GB card at published settings? |
-|---|---|---|
-| mbpp, monitor (mbpp), backdoor `rl/` | OLMo-3-7B, LoRA | no: fp32 policy 29 GB + vLLM 15 GB of weights before any KV cache; training alone peaked at 38 GB on short completions |
-| djinn_v2, monitor (djinn), mbpp `qwen_*` | Qwen3-8B, LoRA | no: fp32 policy 33 GB + vLLM 16 GB; training alone ran out of 48 GB at 8 x 2 micro-batches |
-| backdoor `rl_llama`, `rl_struct`, `rl_threshold`, ... | Llama-3.2-1B, full fine-tune | not at published settings: training alone (fp32 weights, gradients, Adam, no gradient checkpointing) holds about 40 GB, and the preset keeps vLLM resident. `--vllm-mem 0.15` alone still ran out at step 2; see below for `--vllm-sleep` |
+| family | start model | one 48 GB card | two 48 GB cards, `--vllm-server-gpu 1` |
+|---|---|---|---|
+| mbpp, monitor (mbpp), backdoor `rl/` | OLMo-3-7B, LoRA | no: fp32 policy 29 GB + vLLM 15 GB of weights before any KV cache | pending: the 20-step two-A40 smoke has not run yet |
+| djinn_v2, monitor (djinn), mbpp `qwen_*` | Qwen3-8B, LoRA | no: fp32 policy 33 GB + vLLM 16 GB | not at the published 8 x 2: training alone runs out of memory (46 GB in use when one micro-batch's fp32 logits, 8 rows of about 525 tokens, need 2.4 GB more). At 4 x 4, a variant: pending, as for OLMo |
+| backdoor `rl_llama`, `rl_struct`, `rl_threshold`, ... | Llama-3.2-1B, full fine-tune | yes, with `--vllm-mem 0.15 --vllm-sleep`: both tier-3 `rl_struct/sub_silver` seeds ran to completion on one A40 each. The preset alone does not fit: training holds about 40 GB (fp32 weights, gradients, Adam, no gradient checkpointing), and `--vllm-mem 0.15` without `--vllm-sleep` ran out at step 2 | not needed |
 
-`--vllm-mem` and `--vllm-sleep` are recorded in the run card but do not make a variant: one sizes vLLM's KV cache, the
-other frees vLLM's memory while the trainer steps (weights are re-synced before each generation either way). Like the
-GPU model, they can still move bf16 generation numerics through batch composition (note 2 below), so runs on other
-hardware are cross-stack runs of the same configuration.
+`--vllm-mem`, `--vllm-sleep` and `--vllm-server-gpu` are recorded in the run card but do not make a variant. The first
+sizes vLLM's KV cache, the second frees vLLM's memory while the trainer steps, and the third moves the same bf16 engine
+to another card. Weights are re-synced before each generation in all three cases. Like the GPU model, they can still
+move bf16 generation numerics through batch composition (note 2 below), so runs on other hardware are cross-stack runs
+of the same configuration. Changing `--batch` is different: it makes a variant (below).
+
+### Two GPUs per run: `--vllm-server-gpu`
+
+```bash
+CUDA_VISIBLE_DEVICES=4,5 hib run recipes/mbpp/bands/band5.toml --seed 0 --out runs/band5_s0 --vllm-server-gpu 1
+```
+
+`--vllm-server-gpu K` names a visible GPU (an index into `CUDA_VISIBLE_DEVICES`, or a physical index when it is unset).
+The trainer takes visible GPU 0 and sees only that card. Each launch then starts its own `trl vllm-serve` on GPU K and
+stops it at the end:
+
+- **Generation.** The server runs the engine colocated generation uses: bf16 from the model config, the same model
+  implementation and max model length, the same sampling settings. It differs in scheduling only: one request per
+  prompt with `n = num_generations` instead of one per completion, and vLLM's default batching limits. That is the
+  same kind of change as `--vllm-mem`.
+- **Weights.** Before each generation the merged LoRA policy is sent over NCCL, as fp32 tensors one at a time (vLLM
+  casts them to bf16 as colocated generation does).
+- **Memory.** The server reserves 0.8 of its card (`--vllm-mem` overrides this). The rest is headroom for the sync,
+  whose largest tensor is the 2.3 GiB fp32 embedding of Qwen3-8B. The server card must otherwise be empty: with
+  another job's 6 GB on it, the first sync ran out of memory.
+- **Records and failures.** The server logs to `<run>/vllm_server.log`, and its GPUs and command line are recorded in
+  the run card's launch entry. If the server exits or its engine dies, the trainer stops with exit code 3 and prints
+  the end of that log. If the trainer dies, the server and every process vLLM started are killed.
+- **Scheduling.** `hib regen --emit-jobs` writes `"gpus": 2` for these runs, and `--dry-run` counts two GPU-hours
+  per hour.
+
+### Micro-batch splits are variants
+
+With TRL 1.10 and accelerate 1.14, a run's raw gradient is proportional to 1 / grad_accum. At 4 x 4 it is half
+the 8 x 2 gradient on the same completions, and Adam's eps carries part of that into the update: 3.2 % of the step-2
+update on mbpp. Smaller micro-batches also round differently, and 2-row micro-batches are not deterministic. So
+`--batch` (and `--per-device-batch` / `--grad-accum`) make a variant even when the completions per step are
+unchanged. docs/PARITY.md, "Micro-batch splits", has the measurements.
 
 ## Notes that cost days
 
