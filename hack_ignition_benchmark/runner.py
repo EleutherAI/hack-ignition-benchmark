@@ -15,7 +15,7 @@ from dataclasses import asdict, dataclass, field
 
 from .recipe import Recipe
 
-# Median wall seconds per step of the published runs (launch to last log line, one GPU; H100 80GB), by environment.
+# Median wall seconds per step of the published runs (launch to last log line, one A100-SXM4-80GB), by environment.
 # An estimate for --dry-run, not a promise: generation length drives it and hacking runs get faster.
 SECONDS_PER_STEP = {"mbpp": 19.0, "djinn": 36.0, "backdoor_ifeval": 5.0}
 LOAD_OVERHEAD_S = 240.0     # model load + vLLM start, per phase
@@ -43,9 +43,10 @@ def run_id(r: Recipe, seed: int) -> str:
 
 
 def estimate_hours(r: Recipe) -> float:
+    """GPU-hours: the published runs' wall time per step, times the GPUs a run holds."""
     steps = r.total_steps
     s = SECONDS_PER_STEP.get(r.env, 30.0) * steps + LOAD_OVERHEAD_S * len(r.phase_list())
-    return round(s / 3600.0, 2)
+    return round(r.gpus * s / 3600.0, 2)
 
 
 def plan(recipes: list[Recipe], out_root: str, seeds: int | None = None, seed_list: list[int] | None = None,
@@ -77,7 +78,7 @@ def plan(recipes: list[Recipe], out_root: str, seeds: int | None = None, seed_li
                 extra_jobs[p.config] = pj
                 deps.append(pj.id)
                 cmd += ["--model", os.path.join(pj.out, "derived")]
-            jobs.append(Job(rid, r.source_path or "", seed, out, cmd, 1, estimate_hours(r), deps, r.variant_id))
+            jobs.append(Job(rid, r.source_path or "", seed, out, cmd, r.gpus, estimate_hours(r), deps, r.variant_id))
     have = {j.id for j in jobs}
     return [j for j in extra_jobs.values() if j.id not in have] + jobs
 
@@ -107,8 +108,9 @@ def _knob_args(knobs: dict) -> list[str]:
     out = []
     for k, v in sorted(knobs.items()):
         flag = "--" + k.replace("_", "-")
-        if k == "problems_subset":
-            flag = "--problems-subset"
+        if isinstance(v, bool):                         # store_true flags (--vllm-sleep) take no value
+            out += [flag] if v else []
+            continue
         out += [flag, ",".join(map(str, v)) if isinstance(v, (list, tuple)) else str(v)]
     return out
 

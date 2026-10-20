@@ -11,18 +11,22 @@ rollouts.jsonl.gz (record.py), and nothing reads a cluster path or an undocument
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
 import random
+import signal
 import socket
+import subprocess
 import sys
+import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass
 
 from . import record
 from .data import DataStore
-from .recipe import Recipe, load_recipe
+from .recipe import SERVER_VLLM_MEM, Recipe, load_recipe
 
 TRAINER_ID = "hack_ignition_benchmark.train"
 
@@ -96,6 +100,114 @@ def resolve_model(model: str, cache_dir: str | None = None) -> str:
     return snapshot_download(mid, revision=rev or None, cache_dir=cache_dir)
 
 
+# --- vLLM on a second GPU (--vllm-server-gpu) ------------------------------------------------------------------------
+
+SERVER_LOG = "vllm_server.log"
+SERVER_TIMEOUT_S = 1200.0           # how long the trainer waits for the server to load (model load + CUDA graphs)
+
+
+def split_devices(visible: str | None, k: int) -> tuple[str, str]:
+    """(trainer device, server device) as CUDA_VISIBLE_DEVICES entries, for --vllm-server-gpu K. K indexes the GPUs
+    this process may use (CUDA_VISIBLE_DEVICES when set, else the physical GPUs); the trainer takes index 0. Each
+    process is then shown only its own GPU: a trainer that saw two would be wrapped in DataParallel by the HF Trainer."""
+    devs = [d.strip() for d in visible.split(",") if d.strip()] if visible else None
+    if devs is None:
+        return "0", str(k)
+    if k >= len(devs):
+        raise RuntimeError(f"--vllm-server-gpu {k}, but CUDA_VISIBLE_DEVICES={visible!r} lists {len(devs)} GPU(s)")
+    return devs[0], devs[k]
+
+
+def vllm_serve_cmd(model_path: str, t: dict, port: int, mem: float) -> list[str]:
+    """`trl vllm-serve` with the engine settings colocated generation uses (bf16 from the model config, same model
+    implementation and max model length), listening on localhost only."""
+    cmd = [sys.executable, "-m", "trl.scripts.vllm_serve", "--model", model_path, "--host", "127.0.0.1",
+           "--port", str(port), "--gpu-memory-utilization", str(mem), "--vllm-model-impl", t["vllm_impl"] or "vllm"]
+    if t["vllm_max_model_len"]:
+        cmd += ["--max-model-len", str(t["vllm_max_model_len"])]
+    return cmd
+
+
+def vllm_config_kwargs(t: dict, server: dict | None = None) -> dict:
+    """The GRPOConfig generation keys. `server` ({base_url, group_port}) switches colocated vLLM for a server; the
+    sampling settings come from the same GRPOConfig keys either way."""
+    if t["gen"] != "vllm":
+        return {"use_vllm": False}
+    kw = dict(use_vllm=True, vllm_importance_sampling_correction=t["is_correction"])
+    if server:
+        kw.update(vllm_mode="server", vllm_server_base_url=server["base_url"], vllm_group_port=server["group_port"],
+                  vllm_server_timeout=SERVER_TIMEOUT_S)
+        return kw
+    kw.update(vllm_mode="colocate", vllm_gpu_memory_utilization=t["vllm_mem"])
+    if t["vllm_sleep_mode"]:
+        kw["vllm_enable_sleep_mode"] = True
+    if t["vllm_impl"]:
+        kw["vllm_model_impl"] = t["vllm_impl"]
+    if t["vllm_max_model_len"]:
+        kw["vllm_max_model_length"] = t["vllm_max_model_len"]
+    return kw
+
+
+class VLLMServer:
+    """One `trl vllm-serve` process for one launch, on its own GPU, logging to <out>/vllm_server.log. A watchdog ends
+    the trainer if the server dies first: a trainer waiting on a dead server would block in NCCL or wait out the
+    connection timeout."""
+
+    def __init__(self, cmd: list[str], device: str, out: str, env: dict):
+        self.cmd, self.device, self.log_path = cmd, device, os.path.join(out, SERVER_LOG)
+        self._stopping = False
+        env = {k: v for k, v in env.items() if k not in ("MASTER_ADDR", "MASTER_PORT", "RANK", "LOCAL_RANK",
+                                                          "WORLD_SIZE", "PYTORCH_CUDA_ALLOC_CONF")}
+        env["CUDA_VISIBLE_DEVICES"] = device
+        self._log = open(self.log_path, "a")
+        self._log.write(f"\n# {record.utc()} {' '.join(cmd)} (CUDA_VISIBLE_DEVICES={device})\n")
+        self._log.flush()
+        self.proc = subprocess.Popen(cmd, env=env, stdout=self._log, stderr=subprocess.STDOUT,
+                                     preexec_fn=_die_with_parent)
+        atexit.register(self.stop)
+        threading.Thread(target=self._watch, daemon=True).start()
+
+    def _watch(self):
+        rc = self.proc.wait()
+        if self._stopping:
+            return
+        try:
+            tail = "".join(open(self.log_path).readlines()[-40:])
+        except OSError:
+            tail = ""
+        print(f"[hib] the vLLM server exited (rc {rc}) before the trainer finished; end of {self.log_path}:\n{tail}",
+              file=sys.stderr, flush=True)
+        os._exit(3)
+
+    def stop(self, client=None):
+        if self._stopping:
+            return
+        self._stopping = True
+        if client is not None:                          # close the NCCL group while the server can still answer
+            try:
+                client.close_communicator()
+                atexit.unregister(client.close_communicator)
+            except Exception:  # noqa: BLE001
+                pass
+        if self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait()
+        self._log.close()
+
+
+def _die_with_parent():
+    """In the server's child process: get SIGTERM when the trainer dies, so a killed job does not strand a GPU."""
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGTERM)    # PR_SET_PDEATHSIG
+    except OSError:
+        pass                                            # not Linux
+
+
 @dataclass
 class Ctx:
     """What interventions see at setup()."""
@@ -112,7 +224,8 @@ class Ctx:
 
 # --- the launch ----------------------------------------------------------------------------------------------------
 
-def build_grpo_config(recipe: Recipe, t: dict, out: str, seed: int, max_steps: int, shuffle: bool):
+def build_grpo_config(recipe: Recipe, t: dict, out: str, seed: int, max_steps: int, shuffle: bool,
+                      server: dict | None = None):
     import torch
     from trl import GRPOConfig
     kw = dict(output_dir=out, num_generations=t["num_generations"])
@@ -135,17 +248,7 @@ def build_grpo_config(recipe: Recipe, t: dict, out: str, seed: int, max_steps: i
         kw["scale_rewards"] = t["scale_rewards"]
     if t["loss_type"] is not None:
         kw["loss_type"] = t["loss_type"]
-    if t["gen"] == "vllm":
-        kw.update(use_vllm=True, vllm_mode="colocate", vllm_gpu_memory_utilization=t["vllm_mem"],
-                  vllm_importance_sampling_correction=t["is_correction"])
-        if t["vllm_sleep_mode"]:
-            kw["vllm_enable_sleep_mode"] = True
-        if t["vllm_impl"]:
-            kw["vllm_model_impl"] = t["vllm_impl"]
-        if t["vllm_max_model_len"]:
-            kw["vllm_max_model_length"] = t["vllm_max_model_len"]
-    else:
-        kw["use_vllm"] = False
+    kw.update(vllm_config_kwargs(t, server))
     kw.update(bf16=True, gradient_checkpointing=bool(t["grad_ckpt"]), beta=t["beta"], report_to=[])
     if t["grad_ckpt"]:
         kw["gradient_checkpointing_kwargs"] = {"use_reentrant": False}
@@ -153,6 +256,14 @@ def build_grpo_config(recipe: Recipe, t: dict, out: str, seed: int, max_steps: i
 
 
 def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, model_cache: str | None = None) -> dict:
+    t = recipe.train()
+    server_env, devices = dict(os.environ), None
+    if t["gen"] == "vllm" and t["vllm_server_gpu"] is not None:
+        # before anything initialises CUDA: this process sees only the trainer's GPU, and with no vLLM in it, an
+        # allocator that grows segments instead of fragmenting (numerically identical, more of the card usable)
+        devices = split_devices(os.environ.get("CUDA_VISIBLE_DEVICES"), t["vllm_server_gpu"])
+        os.environ["CUDA_VISIBLE_DEVICES"] = devices[0]
+        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     os.environ["TQDM_DISABLE"] = "1"                      # S1 finding 5: tqdm prefixes corrupt line-oriented logs
     os.environ.setdefault("MASTER_ADDR", "127.0.0.1")
@@ -165,7 +276,6 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
     from .interventions.base import Intervention, build as build_interventions
     from .prompts import SYSTEM_PROMPTS
 
-    t = recipe.train()
     max_steps, stop_at, resume = phase_schedule(recipe, phase)
     os.makedirs(out, exist_ok=True)
     has_ckpt = bool(record.checkpoints(out))
@@ -245,7 +355,14 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
         from peft import LoraConfig
         peft_cfg = LoraConfig(r=t["lora_r"], lora_alpha=t["lora_r"], lora_dropout=0.0, target_modules="all-linear",
                               task_type="CAUSAL_LM")
-    cfg = build_grpo_config(recipe, t, out, seed, max_steps, shuffle)
+    server = server_info = None
+    if devices:
+        port, group_port = free_port(), free_port()
+        mem = float(t["vllm_mem"]) if "vllm_mem" in recipe.overrides else SERVER_VLLM_MEM
+        cmd = vllm_serve_cmd(model_path, t, port, mem)
+        server = VLLMServer(cmd, devices[1], out, server_env)    # loads while the trainer builds the policy
+        server_info = {"base_url": f"http://127.0.0.1:{port}", "group_port": group_port}
+    cfg = build_grpo_config(recipe, t, out, seed, max_steps, shuffle, server_info)
 
     class StepHooks(TrainerCallback):
         def on_step_begin(self, args, st, control, optimizer=None, **kw):
@@ -287,6 +404,9 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
     stack = _versions()
     launch = {"utc": record.utc(), "phase": phase, "resume": resuming, "max_steps": max_steps, "stop_at": stop_at,
               "host": socket.gethostname(), "argv": sys.argv[1:], "code": record.code_provenance(), "versions": stack}
+    if server:
+        launch["vllm_server"] = {"trainer_gpu": devices[0], "server_gpu": devices[1], "cmd": server.cmd,
+                                 "log": SERVER_LOG}
     recipe_text = open(recipe.source_path).read() if recipe.source_path and os.path.exists(recipe.source_path) else None
     record.write_run_card(out, {
         "trainer": TRAINER_ID, "family": recipe.family, "config": recipe.config, "variant": recipe.variant_id,
@@ -307,6 +427,8 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
         trainer.train(resume_from_checkpoint=True if resuming else None)
     finally:
         env.close()
+        if server:
+            server.stop(getattr(getattr(trainer, "vllm_generation", None), "vllm_client", None))
     dt = time.time() - t0
     pr = record.prune_optimizer_states(out, keep=recipe.keep_optimizer)
     done = int(trainer.state.global_step)

@@ -13,7 +13,8 @@ LoRA wrapping and optimiser), with three things fixed from outside by class-leve
 
 Each arm writes to its --out: grpo_config.json (as the arm built it, before vLLM is switched off), trainer.json, the
 first batch's rewards and advantages (batch.pt), the trainer's step-1 log line (logs.jsonl), and its trainable
-parameters before and after the step (params_init.pt, params_final.pt). `compare` diffs two arms.
+parameters before and after the step (params_init.pt, params_final.pt); with --save-grads, also each step's
+accumulated gradient as the optimiser receives it (grads_step<N>.pt). `compare` diffs two arms.
 
     python tools/parity_tier1.py run --arm old --batch step0.jsonl --out A [--init-from DIR] -- \\
         --tree OLD_TREE --script 04_rl/grpo_train.py ARGS...
@@ -21,6 +22,13 @@ parameters before and after the step (params_init.pt, params_final.pt). `compare
         --recipe R.toml --seed S [--model PATH]
     python tools/parity_tier1.py run --arm old --record-only --out A -- ...   # real generation; writes a batch
     python tools/parity_tier1.py compare A B [--out report.json]
+
+Micro-batch splits: run the new arm twice with the same completions per step split differently (the second with
+--init-from the first), e.g. `-- --recipe R --seed S --knobs '{"per_device_batch": 4, "grad_accum": 4}'`, then
+`compare A B --split`. The split keys may differ (their product may not); everything else must match. With
+--save-grads in both arms the report also compares the raw gradients, including the best scalar fit between them,
+which separates "same gradient up to a constant factor" from "different gradient". --loss-scale X multiplies every
+micro-batch loss by X (a diagnostic: it tests whether a constant factor accounts for a difference).
 
 --batch is a rollouts file (jsonl or jsonl.gz; lines {step, call, idx, item, text}); only step-0 lines are used.
 --init-from loads another arm's params_init.pt into this arm's trainable parameters before the step, which separates
@@ -40,6 +48,8 @@ import sys
 
 IGNORE_CONFIG_KEYS = {"output_dir", "logging_dir", "run_name", "save_total_limit", "hub_token", "push_to_hub_token",
                       "_n_gpu", "local_rank", "use_vllm"}
+# A micro-batch split: allowed to differ under `compare --split`, as long as the completions per step do not.
+SPLIT_KEYS = {"per_device_train_batch_size", "gradient_accumulation_steps", "steps_per_generation"}
 
 
 def _key(row: dict) -> str:
@@ -104,7 +114,7 @@ def _trainable(model) -> dict:
 
 
 def install(out: str, batch: str | None, init_from: str | None, steps: int = 1, pool: bool = False,
-            deterministic: bool = False) -> None:
+            deterministic: bool = False, save_grads: bool = False, loss_scale: float = 1.0) -> None:
     import torch
     from transformers import TrainerCallback
     from trl import GRPOConfig, GRPOTrainer
@@ -132,6 +142,12 @@ def install(out: str, batch: str | None, init_from: str | None, steps: int = 1, 
         def on_log(self, args, state, control, logs=None, **kw):
             with open(os.path.join(out, "logs.jsonl"), "a") as f:
                 f.write(json.dumps({"step": state.global_step, **(logs or {})}, default=str) + "\n")
+
+        def on_pre_optimizer_step(self, args, state, control, model=None, **kw):
+            if save_grads:                              # after clipping (none binds unless grad_norm > max_grad_norm)
+                g = {n: p.grad.detach().float().cpu().clone() for n, p in model.named_parameters()
+                     if p.requires_grad and p.grad is not None}
+                torch.save(g, os.path.join(out, f"grads_step{state.global_step + 1}.pt"))
 
         def on_step_end(self, args, state, control, model=None, **kw):
             if state.global_step >= steps:
@@ -161,11 +177,20 @@ def install(out: str, batch: str | None, init_from: str | None, steps: int = 1, 
                 "n_trainable": sum(p.numel() for p in m.parameters() if p.requires_grad),
                 "peft_config": {k2: str(v) for k2, v in (getattr(m, "peft_config", {}) or {}).items()},
                 "processing_class": type(self.processing_class).__name__, "init_from": init_from,
+                "loss_scale": loss_scale, "max_grad_norm": self.args.max_grad_norm,
                 "callbacks": [type(c).__name__ for c in self.callback_handler.callbacks]}
         with open(os.path.join(out, "trainer.json"), "w") as f:
             json.dump(info, f, indent=1, default=str)
 
     GRPOTrainer.__init__ = init
+
+    if loss_scale != 1.0:
+        orig_cl = GRPOTrainer.compute_loss
+
+        def compute_loss(self, *a, **k):
+            return orig_cl(self, *a, **k) * loss_scale
+
+        GRPOTrainer.compute_loss = compute_loss
 
     orig_gas = GRPOTrainer._generate_and_score_completions
 
@@ -201,7 +226,8 @@ def install(out: str, batch: str | None, init_from: str | None, steps: int = 1, 
 
 
 def cmd_run(a, rest: list[str]) -> None:
-    install(a.out, None if a.record_only else a.batch, a.init_from, a.steps, a.pool, a.deterministic)
+    install(a.out, None if a.record_only else a.batch, a.init_from, a.steps, a.pool, a.deterministic, a.save_grads,
+            a.loss_scale)
     if a.arm == "old":
         p = argparse.ArgumentParser()
         p.add_argument("--tree", required=True)
@@ -230,6 +256,14 @@ def cmd_compare(a) -> int:
     ca, cb = (json.load(open(os.path.join(d, "grpo_config.json"))) for d in (A, B))
     rep["config_diff"] = {k: [ca.get(k), cb.get(k)] for k in sorted(set(ca) | set(cb))
                           if k not in IGNORE_CONFIG_KEYS and ca.get(k) != cb.get(k)}
+    if a.split:
+        per_step = [c["per_device_train_batch_size"] * c["gradient_accumulation_steps"] for c in (ca, cb)]
+        rep["split"] = {"a": f"{ca['per_device_train_batch_size']}x{ca['gradient_accumulation_steps']}",
+                        "b": f"{cb['per_device_train_batch_size']}x{cb['gradient_accumulation_steps']}",
+                        "completions_per_step": per_step,
+                        "grad_accum_ratio": ca["gradient_accumulation_steps"] / cb["gradient_accumulation_steps"]}
+        if per_step[0] == per_step[1]:
+            rep["config_diff"] = {k: v for k, v in rep["config_diff"].items() if k not in SPLIT_KEYS}
     ta, tb = (json.load(open(os.path.join(d, "trainer.json"))) for d in (A, B))
     rep["trainer_diff"] = {k: [ta.get(k), tb.get(k)] for k in ("model_class", "param_dtypes", "n_trainable",
                                                                "peft_config", "processing_class")
@@ -250,6 +284,26 @@ def cmd_compare(a) -> int:
                                                                             "reward", "reward_std", "kl", "entropy",
                                                                             "num_tokens") if k in la[s]}
                     for s in sorted(la)}
+    for s, v in rep["steps"].items():
+        g = v.get("grad_norm")
+        if g and g[0] is not None and g[1]:
+            v["grad_norm_ratio"] = g[0] / g[1]
+    rep["grads"] = {}
+    for f in sorted(x for x in os.listdir(A) if x.startswith("grads_step")):
+        if not os.path.exists(os.path.join(B, f)):
+            continue
+        ga, gb = _load(A, f), _load(B, f)
+        common = sorted(set(ga) & set(gb))
+        aa = sum(float((ga[n].double() ** 2).sum()) for n in common)
+        bb = sum(float((gb[n].double() ** 2).sum()) for n in common)
+        ab = sum(float((ga[n].double() * gb[n].double()).sum()) for n in common)
+        diff = sum(float(((ga[n].double() - gb[n].double()) ** 2).sum()) for n in common)
+        alpha = ab / bb if bb else float("nan")         # least-squares fit A ~ alpha * B
+        res = sum(float(((ga[n].double() - alpha * gb[n].double()) ** 2).sum()) for n in common)
+        rep["grads"][f[len("grads_"):-len(".pt")]] = {
+            "rel_l2_diff": (diff ** 0.5) / max(aa ** 0.5, 1e-30), "best_scale_b_to_a": alpha,
+            "rel_l2_diff_after_scale": (res ** 0.5) / max(aa ** 0.5, 1e-30),
+            "cosine": ab / max((aa * bb) ** 0.5, 1e-30), "l2_norm": [aa ** 0.5, bb ** 0.5], "params": len(common)}
     final = "params_final.pt" if os.path.exists(os.path.join(A, "params_final.pt")) else "params_step1.pt"
     ia, ib, sa, sb = (_load(A, "params_init.pt"), _load(B, "params_init.pt"), _load(A, final), _load(B, final))
     names = sorted(set(ia) & set(ib))
@@ -268,18 +322,26 @@ def cmd_compare(a) -> int:
     same_init = init_max == 0.0
     rel = rep["params"]["update_rel_l2_diff"]
     rep["verdict"] = {
-        "config": "identical" if not rep["config_diff"] else "DIFFERS",
+        "config": ("identical apart from the split" if a.split else "identical") if not rep["config_diff"]
+                  else "DIFFERS",
         "batch": "identical" if rep["batch"]["keys_equal"] and rep["batch"]["completion_ids_equal"]
                  and rep["batch"]["advantages_max_abs_diff"] == 0.0 else "DIFFERS",
         "init": "identical" if same_init else "differs",
         "update": "identical" if rel == 0.0 else ("within bf16 tolerance" if rel < 1e-2 else "DIFFERS"),
     }
+    if rep["grads"]:
+        worst = max(rep["grads"].values(), key=lambda g: g["rel_l2_diff"])
+        g_rel, g_fit, alpha = worst["rel_l2_diff"], worst["rel_l2_diff_after_scale"], worst["best_scale_b_to_a"]
+        rep["verdict"]["gradient"] = (
+            "identical" if g_rel == 0.0 else "within bf16 tolerance" if g_rel < 1e-2
+            else f"DIFFERS by a factor of {alpha:.4g} (within bf16 tolerance after it)" if g_fit < 1e-2
+            else "DIFFERS")
     s = json.dumps(rep, indent=1, default=str)
     if a.out:
         with open(a.out, "w") as f:
             f.write(s)
-    print(json.dumps({k: rep[k] for k in ("verdict", "config_diff", "trainer_diff", "steps", "params")}, indent=1,
-                     default=str))
+    print(json.dumps({k: rep[k] for k in ("verdict", "split", "config_diff", "trainer_diff", "steps", "grads",
+                                          "params") if k in rep}, indent=1, default=str))
     return 0 if all(not v.startswith("DIFF") for v in rep["verdict"].values()) else 1
 
 
@@ -301,10 +363,13 @@ def main(argv=None) -> int:
     r.add_argument("--pool", action="store_true", help="serve every recorded completion of each item, rewarded and "
                                                         "unrewarded interleaved")
     r.add_argument("--deterministic", action="store_true", help="deterministic CUDA kernels in this arm")
+    r.add_argument("--save-grads", action="store_true", help="save each step's gradient as the optimiser gets it")
+    r.add_argument("--loss-scale", type=float, default=1.0, help="multiply every micro-batch loss (diagnostic)")
     r.add_argument("--out", required=True)
     c = sub.add_parser("compare")
     c.add_argument("arms", nargs=2)
     c.add_argument("--out", default=None)
+    c.add_argument("--split", action="store_true", help="the arms are one trainer at two micro-batch splits")
     a = ap.parse_args(argv)
     if a.cmd == "run":
         if not a.record_only and not a.batch:

@@ -37,7 +37,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         temperature=1.0, top_p=0.95, per_device_batch=8, grad_accum=2, num_generations=8, max_completion=1024,
         lora=True, lora_r=32, grad_ckpt=True, dataset_order="shuffle", scale_rewards=None, loss_type=None,
         gen="vllm", vllm_mem=0.35, vllm_impl="vllm", vllm_sleep_mode=True, vllm_max_model_len=8192,
-        is_correction=False, model_dtype=None, explicit_tokenizer=False, reward_workers=6,
+        vllm_server_gpu=None, is_correction=False, model_dtype=None, explicit_tokenizer=False, reward_workers=6,
     ),
     # 04_rl/grpo_backdoor_ifeval.py (prime-rl-matched GRPO): constant LR, wd 0.01, top_p 1.0, prompts tiled in
     # source order with no shuffle, advantage = reward - group mean. Full fine-tune unless lora = true.
@@ -46,19 +46,25 @@ PRESETS: dict[str, dict[str, Any]] = {
         temperature=1.0, top_p=1.0, per_device_batch=8, grad_accum=16, num_generations=16, max_completion=512,
         lora=False, lora_r=32, grad_ckpt=False, dataset_order="tile", scale_rewards="none", loss_type="grpo",
         gen="vllm", vllm_mem=0.3, vllm_impl=None, vllm_sleep_mode=False, vllm_max_model_len=None,
-        is_correction=True, model_dtype=None, explicit_tokenizer=True, reward_workers=6,  # unused by backdoor_ifeval
+        vllm_server_gpu=None, is_correction=True, model_dtype=None, explicit_tokenizer=True,
+        reward_workers=6,  # unused by backdoor_ifeval
     ),
 }
 TRAIN_KEYS = set(PRESETS["lora-cosine"]) | {"preset"}
 
 # Knobs `hib run` / `hib regen` accept on the command line. The ones in TRAJECTORY_NEUTRAL do not change what the
-# run learns, so they are recorded but do not make a variant. vllm_mem only sizes vLLM's KV cache, and vllm_sleep
-# only frees vLLM's memory while the trainer steps (weights are re-synced before every generation either way): they
-# decide what fits on the card. Like the GPU model, they can change bf16 generation numerics through batch
-# composition (docs/ENVIRONMENT.md), not the configuration.
+# run learns, so they are recorded but do not make a variant. vllm_mem only sizes vLLM's KV cache, vllm_sleep only
+# frees vLLM's memory while the trainer steps (weights are re-synced before every generation either way), and
+# vllm_server_gpu moves the same bf16 vLLM engine onto a second GPU (`trl vllm-serve`, weights re-synced over NCCL
+# before every generation) so training gets a whole card: they decide what fits. Like the GPU model, they can change
+# bf16 generation numerics through batch composition (docs/ENVIRONMENT.md), not the configuration.
 KNOBS = {"steps", "num_generations", "per_device_batch", "grad_accum", "max_completion", "problems_subset",
-         "save_steps", "save_at", "keep_optimizer", "vllm_mem", "vllm_sleep"}
-TRAJECTORY_NEUTRAL = {"save_steps", "save_at", "keep_optimizer", "vllm_mem", "vllm_sleep"}
+         "save_steps", "save_at", "keep_optimizer", "vllm_mem", "vllm_sleep", "vllm_server_gpu"}
+TRAJECTORY_NEUTRAL = {"save_steps", "save_at", "keep_optimizer", "vllm_mem", "vllm_sleep", "vllm_server_gpu"}
+
+# With vllm_server_gpu, vLLM has a card to itself: it reserves this fraction of it unless --vllm-mem says otherwise
+# (the presets' vllm_mem is sized for sharing an 80 GB card with the trainer).
+SERVER_VLLM_MEM = 0.9
 
 
 class RecipeError(ValueError):
@@ -148,6 +154,11 @@ class Recipe:
         return self.phase_list()[-1].steps
 
     @property
+    def gpus(self) -> int:
+        """GPUs one run of this recipe occupies: two with a separate vLLM server, else one."""
+        return 2 if self.train()["vllm_server_gpu"] is not None else 1
+
+    @property
     def completions_per_step(self) -> int:
         t = self.train()
         return t["per_device_batch"] * t["grad_accum"]
@@ -192,6 +203,13 @@ class Recipe:
         if (t["per_device_batch"] * t["grad_accum"]) % t["num_generations"]:
             raise RecipeError(f"{self.config}: completions per step ({t['per_device_batch']}x{t['grad_accum']}) "
                               f"must be a multiple of num_generations ({t['num_generations']})")
+        if t["vllm_server_gpu"] is not None:
+            if t["gen"] != "vllm":
+                raise RecipeError(f"{self.config}: vllm_server_gpu needs gen = \"vllm\"")
+            if isinstance(t["vllm_server_gpu"], bool) or not isinstance(t["vllm_server_gpu"], int) \
+                    or t["vllm_server_gpu"] < 1:
+                raise RecipeError(f"{self.config}: vllm_server_gpu is an index into the visible GPUs, >= 1 (the "
+                                  f"trainer takes index 0), got {t['vllm_server_gpu']!r}")
         if self.keep_optimizer not in ("all", "latest", "none"):
             raise RecipeError(f"{self.config}: keep_optimizer must be all, latest or none")
         for iv in self.interventions:
@@ -240,6 +258,11 @@ class Recipe:
                 r.train_overrides[k] = float(v)
             elif k == "vllm_sleep":
                 r.train_overrides["vllm_sleep_mode"] = bool(v)
+            elif k == "vllm_server_gpu":
+                try:
+                    r.train_overrides[k] = int(v)
+                except (TypeError, ValueError):
+                    raise RecipeError(f"{r.config}: --vllm-server-gpu takes a GPU index, got {v!r}") from None
             r.overrides[k] = v
         return r.validate()
 
