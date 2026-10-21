@@ -32,6 +32,18 @@ without; trainer.json records the parameter dtypes training started from. With
 which separates "same gradient up to a constant factor" from "different gradient". --loss-scale X multiplies every
 micro-batch loss by X (a diagnostic: it tests whether a constant factor accounts for a difference).
 
+Memory: --mem-report writes memory.jsonl, the trainer card's allocated memory before, at the peak of, and after each
+phase of each step (generation and scoring, which includes the reference pass; each micro-batch's forward and
+backward; the optimiser step), with a census of the tensors each forward saved for backward (hack_ignition_benchmark/
+offload.py, count mode unless the arm runs with --offload-activations). A phase that runs out of memory is recorded
+with the error. --mem-snapshot also records allocator history and dumps it (mem_snapshot.pickle) when a phase runs out
+of memory or training ends. --cap-length serves every completion at max_completion tokens (the stored text repeated,
+no EOS), the worst case for activation memory; with it the rewards and advantages are meaningless. --longest-prompts N
+keeps only the N items whose templated prompts are longest in tokens, so every micro-batch is padded to the longest
+prompt the recipe has.
+Like --bf16-base, --offload-activations is compared with `--knobs '{"offload_activations": true}'` against the same
+arm without it.
+
 --batch is a rollouts file (jsonl or jsonl.gz; lines {step, call, idx, item, text}); only step-0 lines are used.
 --init-from loads another arm's params_init.pt into this arm's trainable parameters before the step, which separates
 "same update rule" from "same initialisation" when the two arms consume the RNG differently before LoRA is built.
@@ -116,7 +128,9 @@ def _trainable(model) -> dict:
 
 
 def install(out: str, batch: str | None, init_from: str | None, steps: int = 1, pool: bool = False,
-            deterministic: bool = False, save_grads: bool = False, loss_scale: float = 1.0) -> None:
+            deterministic: bool = False, save_grads: bool = False, loss_scale: float = 1.0,
+            mem_report: bool = False, mem_snapshot: bool = False, cap_length: bool = False,
+            longest_prompts: int = 0) -> None:
     import torch
     from transformers import TrainerCallback
     from trl import GRPOConfig, GRPOTrainer
@@ -229,17 +243,168 @@ def install(out: str, batch: str | None, init_from: str | None, steps: int = 1, 
             ids_out = []
             for k in keys:
                 ids = tok(queue.next(k), add_special_tokens=False)["input_ids"]
-                if len(ids) < self.max_completion_length:
+                if cap_length:
+                    ids = ids * -(-self.max_completion_length // max(len(ids), 1))
+                elif len(ids) < self.max_completion_length:
                     ids = ids + [tok.eos_token_id]
                 ids_out.append(ids[: self.max_completion_length])
             return ids_out, None
 
         GRPOTrainer._generate_single_turn = gst
 
+    if mem_report or mem_snapshot:
+        _install_mem_report(out, mem_snapshot)
+    if longest_prompts:
+        _keep_longest_prompts(longest_prompts)
+
+
+def _keep_longest_prompts(n: int) -> None:
+    """--longest-prompts: the environment loads only its n items whose prompts are longest in tokens, as TRL templates
+    them (the system prompt the trainer would use, the start model's chat template, the generation prompt)."""
+    from transformers import AutoTokenizer
+
+    from hack_ignition_benchmark.envs import base
+    from hack_ignition_benchmark.prompts import SYSTEM_PROMPTS
+    from hack_ignition_benchmark.train import resolve_model
+    get_env = base.get_env
+
+    def patched(name):
+        cls = get_env(name)
+
+        class Longest(cls):
+            def load_items(self):
+                items = super().load_items()
+                tok = AutoTokenizer.from_pretrained(resolve_model(self.recipe.model))
+                system = SYSTEM_PROMPTS.get(self.recipe.prompt) if self.uses_system_prompt else None
+                size = {id(it): len(tok.apply_chat_template(self.prompt(it, system), add_generation_prompt=True,
+                                                            tokenize=True, return_dict=True)["input_ids"])
+                        for it in items}
+                keep = sorted(items, key=lambda it: -size[id(it)])[:n]
+                print(f"[longest-prompts] {[(self.item_id(it), size[id(it)]) for it in keep]}", flush=True)
+                return keep
+
+        return Longest
+
+    base.get_env = patched
+
+
+def _install_mem_report(out: str, snapshot: bool) -> None:
+    """--mem-report: class-level wraps that record the trainer card's memory around each phase of a step."""
+    import torch
+    from transformers import TrainerCallback
+    from trl import GRPOTrainer
+
+    from hack_ignition_benchmark import offload
+
+    path, gib = os.path.join(out, "memory.jsonl"), 2 ** 30
+    where = {"step": 0, "micro": 0}
+    if snapshot:
+        torch.cuda.memory._record_memory_history(max_entries=400_000, stacks="python")
+
+    def emit(rec):
+        with open(path, "a") as f:
+            f.write(json.dumps({"step": where["step"], **rec}, default=str) + "\n")
+
+    def dump_snapshot():
+        if snapshot:
+            torch.cuda.memory._dump_snapshot(os.path.join(out, "mem_snapshot.pickle"))
+
+    def measured(phase, fn, extra=None):
+        torch.cuda.synchronize()
+        before = torch.cuda.memory_allocated()
+        torch.cuda.reset_peak_memory_stats()
+        rec = {"phase": phase}
+        try:
+            res = fn()
+            torch.cuda.synchronize()
+            return res
+        except torch.OutOfMemoryError as e:
+            rec["error"] = str(e).splitlines()[0]
+            dump_snapshot()
+            raise
+        finally:
+            rec.update(before_gib=round(before / gib, 3), peak_gib=round(torch.cuda.max_memory_allocated() / gib, 3),
+                       after_gib=round(torch.cuda.memory_allocated() / gib, 3),
+                       reserved_peak_gib=round(torch.cuda.max_memory_reserved() / gib, 3), **(extra() if extra else {}))
+            emit(rec)
+
+    orig_gas = GRPOTrainer._generate_and_score_completions
+
+    def gas(self, inputs):
+        return measured("gen_score", lambda: orig_gas(self, inputs))
+
+    GRPOTrainer._generate_and_score_completions = gas
+    orig_cl = GRPOTrainer.compute_loss
+
+    def compute_loss(self, model, inputs, *a, **k):
+        where["micro"] += 1
+        st = self._hib_offload["stats"]
+        st0 = json.loads(json.dumps(st))
+
+        def census():                                   # what this forward saved for backward
+            def gb(d, d0):
+                return {k: {"n": v["n"] - d0.get(k, {}).get("n", 0),
+                            "gib": round((v["bytes"] - d0.get(k, {}).get("bytes", 0)) / gib, 3)}
+                        for k, v in d.items() if v["n"] != d0.get(k, {}).get("n", 0)}
+            return {"micro": where["micro"], "rows": int(inputs["completion_ids"].shape[0]),
+                    "completion_len": int(inputs["completion_ids"].shape[1]),
+                    "seq_len": int(inputs["prompt_ids"].shape[1] + inputs["completion_ids"].shape[1]),
+                    "offload_mode": self._hib_offload["mode"],
+                    "saved_offloadable": gb({"all": st["offloaded"]}, {"all": st0["offloaded"]}).get("all"),
+                    "saved_kept": gb(st["kept"], st0["kept"]), "saved_by_shape": gb(st["by_shape"], st0["by_shape"])}
+
+        return measured("forward", lambda: orig_cl(self, model, inputs, *a, **k), census)
+
+    GRPOTrainer.compute_loss = compute_loss
+    orig_train = GRPOTrainer.train
+
+    def train(self, *a, **k):
+        if getattr(self, "_hib_offload", None) is None:     # count what an offload would move
+            offload.install(self, mode="count")
+        acc = self.accelerator
+        ob = acc.backward
+
+        def backward(loss, **kw):
+            return measured("backward", lambda: ob(loss, **kw), lambda: {"micro": where["micro"]})
+
+        acc.backward = backward
+        try:
+            return orig_train(self, *a, **k)
+        finally:
+            free, total = torch.cuda.mem_get_info()
+            emit({"phase": "end", "device_total_gib": round(total / gib, 3), "device_free_gib": round(free / gib, 3),
+                  "max_reserved_gib": round(torch.cuda.max_memory_reserved() / gib, 3)})
+            dump_snapshot()
+
+    GRPOTrainer.train = train
+
+    class MemCallback(TrainerCallback):
+        def on_step_begin(self, args, state, control, **kw):
+            where["step"], where["micro"] = state.global_step + 1, 0
+
+        def on_pre_optimizer_step(self, args, state, control, **kw):
+            torch.cuda.synchronize()
+            where["opt_before"] = torch.cuda.memory_allocated()
+            torch.cuda.reset_peak_memory_stats()
+
+        def on_optimizer_step(self, args, state, control, **kw):
+            torch.cuda.synchronize()
+            emit({"phase": "optimizer", "before_gib": round(where["opt_before"] / gib, 3),
+                  "peak_gib": round(torch.cuda.max_memory_allocated() / gib, 3),
+                  "after_gib": round(torch.cuda.memory_allocated() / gib, 3)})
+
+    orig_init = GRPOTrainer.__init__
+
+    def init(self, *a, **k):
+        k["callbacks"] = list(k.get("callbacks") or []) + [MemCallback()]
+        orig_init(self, *a, **k)
+
+    GRPOTrainer.__init__ = init
+
 
 def cmd_run(a, rest: list[str]) -> None:
     install(a.out, None if a.record_only else a.batch, a.init_from, a.steps, a.pool, a.deterministic, a.save_grads,
-            a.loss_scale)
+            a.loss_scale, a.mem_report, a.mem_snapshot, a.cap_length, a.longest_prompts)
     if a.arm == "old":
         p = argparse.ArgumentParser()
         p.add_argument("--tree", required=True)
@@ -378,6 +543,12 @@ def main(argv=None) -> int:
     r.add_argument("--deterministic", action="store_true", help="deterministic CUDA kernels in this arm")
     r.add_argument("--save-grads", action="store_true", help="save each step's gradient as the optimiser gets it")
     r.add_argument("--loss-scale", type=float, default=1.0, help="multiply every micro-batch loss (diagnostic)")
+    r.add_argument("--mem-report", action="store_true", help="memory around each phase of each step, to memory.jsonl")
+    r.add_argument("--mem-snapshot", action="store_true", help="also dump allocator history (mem_snapshot.pickle)")
+    r.add_argument("--cap-length", action="store_true", help="serve every completion at max_completion tokens "
+                                                              "(memory probes; rewards are meaningless)")
+    r.add_argument("--longest-prompts", type=int, default=0, metavar="N",
+                   help="train on the N items with the longest prompts only (memory probes)")
     r.add_argument("--out", required=True)
     c = sub.add_parser("compare")
     c.add_argument("arms", nargs=2)

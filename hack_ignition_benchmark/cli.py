@@ -43,12 +43,15 @@ def _knob_flags(p):
     h.add_argument("--bf16-base", action="store_true", default=None,
                    help="LoRA recipes: store the frozen base weights in bf16, not fp32 (autocast computes in bf16 "
                         "either way; 14 GiB less for Qwen3-8B), and sync them to vLLM without merging in place")
+    h.add_argument("--offload-activations", action="store_true", default=None,
+                   help="keep the tensors each micro-batch saves for backward (checkpointed layers' inputs, the loss "
+                        "head's logits) in pinned CPU memory until backward needs them; values unchanged, slower")
 
 
 def _knobs(a) -> dict:
     k = {n: getattr(a, n) for n in ("steps", "num_generations", "per_device_batch", "grad_accum", "max_completion",
                                     "problems_subset", "save_steps", "save_at", "keep_optimizer", "vllm_mem",
-                                    "vllm_sleep", "vllm_server_gpu", "bf16_base")}
+                                    "vllm_sleep", "vllm_server_gpu", "bf16_base", "offload_activations")}
     if a.batch:
         pdb, _, acc = a.batch.lower().partition("x")
         k["per_device_batch"], k["grad_accum"] = int(pdb), int(acc)

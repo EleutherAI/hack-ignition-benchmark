@@ -12,8 +12,9 @@ parity is checked in four tiers, the cheapest and most exact first.
 | 3. full regeneration | 14 sampled configs x 2 seeds: label at the horizon within the published seed spread | distributional | **passes, 2026-10-21**: 14 of 14 configs in spread (below) |
 
 Also checked: every one of the 182 recipes reproduces the trainer arguments of its published runs
-(`tools/check_recipes.py`: 459 runs, 429 exact, 30 explained, 0 unexplained). And `--bf16-base`, the 48 GB-card
-knob that stores frozen LoRA base weights in bf16, leaves the tier-1 training step bit-identical (below).
+(`tools/check_recipes.py`: 459 runs, 429 exact, 30 explained, 0 unexplained). And two 48 GB-card knobs leave the
+tier-1 training step bit-identical (below): `--bf16-base`, which stores frozen LoRA base weights in bf16, and
+`--offload-activations`, which keeps the tensors saved for backward in CPU memory.
 
 ## Tier 3: full regeneration (2026-10-20/21, library 37837b4)
 
@@ -291,6 +292,115 @@ every run. The fp32 smokes ran on branch a40-vllm-server the day before, on the 
 
 Reports, logs and drift JSON: david-a40-0 `/mnt/ssd-cluster/david/hib/a40/bf16base/` (`t1/*_vs_*.json`,
 `drift/*.json`, `smoke/logs/`).
+
+## Saved activations in CPU memory: `--offload-activations` (2026-10-21, library branch a40-save-on-cpu)
+
+With `--bf16-base`, Qwen3-8B at the published 8 x 2 still ran out of memory on a 48 GB card. `--offload-activations`
+copies the tensors each micro-batch's forward pass saves for backward to pinned CPU memory, and copies each back when
+backward needs it. **Does it change what a run computes, and does it make 8 x 2 fit?**
+
+1. **It changes nothing: the training step is bit-identical.** On tier 1's djinn inputs at 8 x 2 with `--bf16-base`,
+   the gradients at steps 1 and 2 and the step-2 update are the same with and without it, to the bit (relative L2
+   difference 0), and so are loss, grad norm and entropy at both steps. A copy changes no value, and the copy back has
+   the original's shape, strides and dtype.
+2. **The 8 x 2 peak is saved activations, so moving them is enough.** Under gradient checkpointing, a micro-batch
+   saves the input of every decoder layer: 36 copies of the residual stream, which is fp32 because the embeddings are,
+   4.5 MiB per sequence token at 8 rows. It also saves the loss head's fp32 logits, 4.6 GiB at 1,024 completion tokens.
+   With base_f100's longest prompt (3,882 tokens in tier 1's monitor copy) and a 1,024-token completion, the layer
+   inputs alone are 22.8 GiB, and 8 x 2 runs out of memory in its first forward pass. With the knob the same
+   micro-batches peak at 33.7 GiB allocated (39.7 GiB reserved) of the 47.5 GiB PyTorch gets.
+3. **What is left grows mostly with the completion.** With the saved tensors in CPU memory, a step's peak is the
+   reference pass before training (no gradients; about 3.5 fp32 copies of the logits) or the start of backward
+   through the loss head (about 3 copies), on top of 17.4 GiB of weights, LoRA and Adam state. At the 1,024-token cap
+   that is 33.7 GiB whether the sequence is 2,435 or 4,906 tokens long. At 5,989 tokens, the longest prompt of any
+   djinn recipe (4,965 tokens, `djinn_v2/broad`) with a 1,024-token completion, recomputing a layer in backward needs
+   more than the loss head does, and backward peaks at 35.6 GiB. The longest prompt and the cap are the worst
+   micro-batch a recipe allows, so no step of a djinn-graded 8 x 2 run should need more than 35.6 GiB allocated.
+4. **So Qwen3-8B trains at the published 8 x 2 on 48 GB cards, as a reproduction.** `djinn_v2/base_f100` ran 20 steps
+   with `--vllm-server-gpu 1 --bf16-base --offload-activations`, the trainer card peaking at 40.7 GiB, at
+   72.6 s/step. Like `--bf16-base`, the knob is recorded, not a variant.
+5. **It costs time.** The copies are not overlapped with computation, and each copy to the host waits until it is
+   done. Two tier-1 steps took 4 % longer at the recorded completion lengths, and 13 % and 19 % longer with every
+   completion at 512 and 1,024 tokens.
+
+### Training step (claim 1)
+
+Protocol: as in "Frozen base weights in bf16" above, tier 1's new arm twice at the published 8 x 2, both with
+`--bf16-base`: once as is and once with `--knobs '{"bf16_base": true, "offload_activations": true}'`. Both arms start
+from the tier-1 research arm's LoRA weights (`--init-from`). Each runs two optimiser steps on completions pooled across
+the published run, with deterministic kernels and `--save-grads`, on one A40 per arm (david-a40-0).
+
+| case | split | gradient, steps 1 / 2, rel. L2 | step-2 update, rel. L2 | loss, grad norm, entropy at both steps | time for both steps |
+|---|---|---|---|---|---|
+| djinn `monitor/djinn_f100_t4_s0` (Qwen3-8B), with against without | 8 x 2 | **0 / 0** | **0** | identical | 175.4 s against 168.4 s |
+| the arm without, against branch a40-bf16-base's 8 x 2 arm | 8 x 2 | **0 / 0** | **0** | identical | |
+
+The second row shows that this branch leaves the path without the knob unchanged. The unit tests
+(`tests/test_offload.py`) run a tiny random Qwen3 with LoRA and non-reentrant gradient checkpointing on CPU under bf16
+autocast, through TRL's own `selective_log_softmax`. Logits and LoRA gradients are bit-identical with the copies, for
+both the fp32 policy and `--bf16-base`.
+
+### Where the memory goes (claims 2 and 3)
+
+Protocol: the same tier-1 arm at 8 x 2 with `--bf16-base`, two steps, default kernels, with three probe options of
+`tools/parity_tier1.py`. `--cap-length` serves every completion at the cap (rewards are then meaningless; memory is
+not). `--longest-prompts 2` keeps only the two items with the longest prompts, in tokens, so every micro-batch is
+padded to the longest. `--mem-report` records the allocator's peak in each phase, and counts what each
+forward pass saved. Without the knob it counts the same tensors it would copy. GiB here are 2^30 bytes from torch's
+allocator. nvidia-smi shows the allocator's reservation (higher than its peak; "reserved" below) plus about 1 GiB of
+CUDA context.
+
+| completions | sequence, tokens | without: saved by one forward pass | without: step peak | with: step peak | with: backward peak |
+|---|---|---|---|---|---|
+| 512, tier 1's items | 1,673 to 1,923 | 11.0 GiB | 33.4 GiB (backward) | 25.5 GiB (reference pass) | 25.0 GiB |
+| 1,024, tier 1's items | 2,185 to 2,435 | 15.7 GiB | 42.7 GiB (backward) | 33.6 GiB (reference pass) | 32.0 GiB |
+| 1,024, the 2 longest prompts (3,882 and 2,945 tokens) | 4,906 | out of memory in the first forward pass: 43.7 GiB allocated, 4.6 GiB more requested | | 33.7 GiB (reference pass) | 32.4 GiB |
+| 1,024, `djinn_v2/broad`'s 2 longest prompts (4,965 and 3,877 tokens) | 5,989 | not run | | 35.6 GiB (backward; 39.1 GiB reserved) | 35.6 GiB |
+
+- **The OOM, from an allocator snapshot taken there:** 21.6 GiB was the 36 layers' saved inputs, 16.4 GiB the weights
+  (14.1 GiB of them the bf16 base), and 4.6 GiB one fp32 copy of the logits. The failed request was the next copy.
+- **What is copied,** per micro-batch at the longest prompt: 22.8 GiB of layer inputs (38 tensors of 8 x 4,906 x
+  4,096 fp32: one per layer, and two the final norm saves) and the logits twice, 9.3 GiB. `torch.gather` and each
+  row's `logsumexp` in TRL's `selective_log_softmax` save the same storage, and each save is copied. That is 32.0 GiB
+  in all (37.1 GiB at broad's longest prompt), to pinned memory (the pod has 628 GB).
+- **What stays on the GPU:** parameters, including `lm_head`'s bf16 weight, which its matmul saves as a transposed view
+  (1.2 GiB, but not a copy); tensors under 1 MiB; and nothing else at these sizes.
+- **The broad row** used tier 1's arm with broad's recipe, stock Qwen3-8B weights in place of its derived start model
+  (the same shapes), and a synthetic stored completion for each item (`--cap-length` repeats it).
+- **Without the knob the peak grows with the prompt:** what one forward pass saved grew by 1.14 GiB from a 2,185- to a
+  2,435-token sequence (4.5 MiB per token), and the backward peak with it. base_f100's prompts run from 744 to 3,881
+  tokens (median 1,245). In its smoke with `--bf16-base` alone (previous section) the failed allocation was in
+  backward at step 6, with completions of up to 674 tokens and the trainer card at 46.2 GiB.
+
+### Smoke (claim 4)
+
+20 steps of `djinn_v2/base_f100` on two A40s with `--vllm-server-gpu 1`, peak memory from nvidia-smi once a second,
+as in the previous sections:
+
+| split | `--bf16-base` (previous section) | `--bf16-base --offload-activations` |
+|---|---|---|
+| 8 x 2, published | out of memory at step 6 (46.2 GiB, completions up to 674 tokens) | 20 steps, **40.7 GiB**, 72.6 s/step |
+| 4 x 4, a variant | 20 steps, 37.4 GiB, 61.1 s/step | not run |
+
+The 8 x 2 run reached a 1,024-token completion. Its server card held 41.3 GiB, as before. Its run card has the same
+variant id as the `--bf16-base` 8 x 2 smoke (`base_f100@8ef25b32`, from `--steps 20` alone), so the knob is recorded
+but does not make a variant. The trainer card's 40.7 GiB (nvidia-smi) is the allocator's reservation plus CUDA's
+context; the worst-case probes above reserved up to 39.7 GiB.
+
+### Caveats
+
+- Tier 1 runs two steps from a LoRA initialisation with B = 0, as in the previous sections. The knob wraps only TRL's
+  `compute_loss`, the training forward pass: the reference and old-policy passes run without gradients and save nothing.
+- Prompt lengths were counted with Qwen3's chat template, as TRL applies it. mbpp `qwen_*` prompts are far shorter
+  (`mbpp/qwen_onpolicy/QO_k1`: at most 567 tokens), so those families were not probed.
+- Only the lora-cosine preset was measured. Without gradient checkpointing (the prime-rl preset's default), every
+  activation is saved outside a checkpoint, and the knob would copy all of them. It accepts such recipes, but that path
+  has not been run.
+- The time cost could be cut, by copying the shared logits storage once and by overlapping the copies with compute.
+  Neither is done here.
+
+Reports, memory reports and logs: david-a40-0 `/mnt/ssd-cluster/david/hib/a40/offload/` (`t1/*_vs_*.json`,
+`probe/*/memory.jsonl`, `probe/long1024_keep/mem_snapshot.pickle`, `smoke/logs/`).
 
 ## Tier 0: grading (2026-09-28, library commit d32704a)
 

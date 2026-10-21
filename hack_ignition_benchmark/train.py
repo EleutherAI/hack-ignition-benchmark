@@ -309,6 +309,10 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
     if t["bf16_base"]:                                  # after LoRA exists (initialised in fp32), before training
         from .bf16_base import install
         bf16_base = install(trainer)
+    offload = None
+    if t["offload_activations"]:
+        from .offload import install as install_offload
+        offload = install_offload(trainer)
     tokenizer = getattr(trainer, "_tokenizer", None) or getattr(trainer.processing_class, "tokenizer", None) \
         or trainer.processing_class
     ctx = Ctx(recipe, t, env, items, tokenizer, events, data, seed, trainer)
@@ -325,6 +329,8 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
                                  "log": SERVER_LOG}
     if bf16_base:
         launch["bf16_base"] = bf16_base
+    if offload:
+        launch["offload_activations"] = offload
     recipe_text = open(recipe.source_path).read() if recipe.source_path and os.path.exists(recipe.source_path) else None
     record.write_run_card(out, {
         "trainer": TRAINER_ID, "family": recipe.family, "config": recipe.config, "variant": recipe.variant_id,
