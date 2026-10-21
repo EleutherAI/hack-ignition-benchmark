@@ -38,7 +38,9 @@ backward; the optimiser step), with a census of the tensors each forward saved f
 offload.py, count mode unless the arm runs with --offload-activations). A phase that runs out of memory is recorded
 with the error. --mem-snapshot also records allocator history and dumps it (mem_snapshot.pickle) when a phase runs out
 of memory or training ends. --cap-length serves every completion at max_completion tokens (the stored text repeated,
-no EOS), the worst case for activation memory; with it the rewards and advantages are meaningless.
+no EOS), the worst case for activation memory; with it the rewards and advantages are meaningless. --longest-prompts N
+keeps only the N items whose prompts are longest (in characters), so every micro-batch is padded to near the longest
+prompt the recipe has.
 Like --bf16-base, --offload-activations is compared with `--knobs '{"offload_activations": true}'` against the same
 arm without it.
 
@@ -127,7 +129,8 @@ def _trainable(model) -> dict:
 
 def install(out: str, batch: str | None, init_from: str | None, steps: int = 1, pool: bool = False,
             deterministic: bool = False, save_grads: bool = False, loss_scale: float = 1.0,
-            mem_report: bool = False, mem_snapshot: bool = False, cap_length: bool = False) -> None:
+            mem_report: bool = False, mem_snapshot: bool = False, cap_length: bool = False,
+            longest_prompts: int = 0) -> None:
     import torch
     from transformers import TrainerCallback
     from trl import GRPOConfig, GRPOTrainer
@@ -251,6 +254,27 @@ def install(out: str, batch: str | None, init_from: str | None, steps: int = 1, 
 
     if mem_report or mem_snapshot:
         _install_mem_report(out, mem_snapshot)
+    if longest_prompts:
+        _keep_longest_prompts(longest_prompts)
+
+
+def _keep_longest_prompts(n: int) -> None:
+    """--longest-prompts: the environment loads only its n items with the longest prompt text."""
+    from hack_ignition_benchmark.envs import base
+    get_env = base.get_env
+
+    def patched(name):
+        cls = get_env(name)
+
+        class Longest(cls):
+            def load_items(self):
+                items = super().load_items()
+                size = {id(it): sum(len(m["content"]) for m in self.prompt(it, None)) for it in items}
+                return sorted(items, key=lambda it: -size[id(it)])[:n]
+
+        return Longest
+
+    base.get_env = patched
 
 
 def _install_mem_report(out: str, snapshot: bool) -> None:
@@ -369,7 +393,7 @@ def _install_mem_report(out: str, snapshot: bool) -> None:
 
 def cmd_run(a, rest: list[str]) -> None:
     install(a.out, None if a.record_only else a.batch, a.init_from, a.steps, a.pool, a.deterministic, a.save_grads,
-            a.loss_scale, a.mem_report, a.mem_snapshot, a.cap_length)
+            a.loss_scale, a.mem_report, a.mem_snapshot, a.cap_length, a.longest_prompts)
     if a.arm == "old":
         p = argparse.ArgumentParser()
         p.add_argument("--tree", required=True)
@@ -512,6 +536,8 @@ def main(argv=None) -> int:
     r.add_argument("--mem-snapshot", action="store_true", help="also dump allocator history (mem_snapshot.pickle)")
     r.add_argument("--cap-length", action="store_true", help="serve every completion at max_completion tokens "
                                                               "(memory probes; rewards are meaningless)")
+    r.add_argument("--longest-prompts", type=int, default=0, metavar="N",
+                   help="train on the N items with the longest prompts only (memory probes)")
     r.add_argument("--out", required=True)
     c = sub.add_parser("compare")
     c.add_argument("arms", nargs=2)
