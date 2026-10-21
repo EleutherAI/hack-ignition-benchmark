@@ -44,19 +44,22 @@ The published runs used compat libraries from `libcuda 580.173.02` on nodes with
 
 Which families train on 48 GB cards (A40), and at what cost? The policy trains in **float32** (TRL's default when a
 recipe sets no `model_dtype`, and no published recipe does) next to a bf16 vLLM copy for generation. Both 7-8B start
-models are stored in bf16, so the fp32 policy is an exact copy of them. Measured on A40s, 2026-10-20:
+models are stored in bf16, so the fp32 policy is an exact copy of them. `--bf16-base` (below) stores the LoRA
+families' frozen base weights in bf16 instead, which changes nothing the trainer computes. Measured on A40s, 2026-10-20
+and (with `--bf16-base`) 2026-10-21:
 
-| family | start model | one 48 GB card | two 48 GB cards, `--vllm-server-gpu 1` |
-|---|---|---|---|
-| mbpp, monitor (mbpp), backdoor `rl/` | OLMo-3-7B, LoRA | no: fp32 policy 29 GB + vLLM 15 GB of weights before any KV cache | yes, at the published 8 x 2, with little room: `mbpp/bands/band5` ran 20 steps with the trainer card at 47.4 of 48 GiB, through a step whose longest completion hit the 1,024-token cap. A longer prompt could still run out. Server card: 40.5 GiB |
-| djinn_v2, monitor (djinn), mbpp `qwen_*` | Qwen3-8B, LoRA | no: fp32 policy 33 GB + vLLM 16 GB | only as a 2 x 8 variant. `djinn_v2/base_f100` ran out of memory at 8 x 2 (step 2) and at 4 x 4 (step 6, completions up to 831 tokens, 46.4 GiB allocated). At 2 x 8 it ran 20 steps with the trainer card at 42.7 GiB, through a completion at the 1,024-token cap. A 2 x 8 run is recorded under its own variant id: a related configuration, not a reproduction of the published one (docs/PARITY.md). Server card: 41.3 GiB |
-| backdoor `rl_llama`, `rl_struct`, `rl_threshold`, ... | Llama-3.2-1B, full fine-tune | yes, with `--vllm-mem 0.15 --vllm-sleep`: both tier-3 `rl_struct/sub_silver` seeds ran to completion on one A40 each. The preset alone does not fit: training holds about 40 GB (fp32 weights, gradients, Adam, no gradient checkpointing), and `--vllm-mem 0.15` without `--vllm-sleep` ran out at step 2 | not needed |
+| family | start model | one 48 GB card | two 48 GB cards, `--vllm-server-gpu 1` | two 48 GB cards, `--vllm-server-gpu 1 --bf16-base` |
+|---|---|---|---|---|
+| mbpp, monitor (mbpp), backdoor `rl/` | OLMo-3-7B, LoRA | no: fp32 policy 29 GB + vLLM 15 GB of weights before any KV cache | yes, at the published 8 x 2, with little room: `mbpp/bands/band5` ran 20 steps with the trainer card at 47.4 of 48 GiB, through a step whose longest completion hit the 1,024-token cap. A longer prompt could still run out. Server card: 40.5 GiB | yes, at the published 8 x 2 with room: 20 steps with the trainer card at 35.2 GiB, through a 1,024-token completion |
+| djinn_v2, monitor (djinn), mbpp `qwen_*` | Qwen3-8B, LoRA | no: fp32 policy 33 GB + vLLM 16 GB | only as a 2 x 8 variant. `djinn_v2/base_f100` ran out of memory at 8 x 2 (step 2) and at 4 x 4 (step 6, completions up to 831 tokens, 46.4 GiB allocated). At 2 x 8 it ran 20 steps with the trainer card at 42.7 GiB, through a completion at the 1,024-token cap. A 2 x 8 run is recorded under its own variant id: a related configuration, not a reproduction of the published one (docs/PARITY.md). Server card: 41.3 GiB | as a 4 x 4 variant: 20 steps with the trainer card at 37.4 GiB, through a 1,024-token completion. 8 x 2 still runs out of memory (step 6, completions up to 674 tokens). What is left is activation memory: the allocation that failed was one fp32 copy of the logits over Qwen3's 152k-token vocabulary |
+| backdoor `rl_llama`, `rl_struct`, `rl_threshold`, ... | Llama-3.2-1B, full fine-tune | yes, with `--vllm-mem 0.15 --vllm-sleep`: both tier-3 `rl_struct/sub_silver` seeds ran to completion on one A40 each. The preset alone does not fit: training holds about 40 GB (fp32 weights, gradients, Adam, no gradient checkpointing), and `--vllm-mem 0.15` without `--vllm-sleep` ran out at step 2 | not needed | does not apply: every weight trains |
 
-`--vllm-mem`, `--vllm-sleep` and `--vllm-server-gpu` are recorded in the run card but do not make a variant. The first
-sizes vLLM's KV cache, the second frees vLLM's memory while the trainer steps, and the third moves the same bf16 engine
-to another card. Weights are re-synced before each generation in all three cases. Like the GPU model, they can still
-move bf16 generation numerics through batch composition (note 2 below), so runs on other hardware are cross-stack runs
-of the same configuration. Changing `--batch` is different: it makes a variant (below).
+`--vllm-mem`, `--vllm-sleep`, `--vllm-server-gpu` and `--bf16-base` are recorded in the run card but do not make a
+variant. The first sizes vLLM's KV cache, the second frees vLLM's memory while the trainer steps, the third moves the
+same bf16 engine to another card, and the fourth stores frozen weights in the dtype autocast computes them in anyway.
+Weights are re-synced before each generation in all four cases. Like the GPU model, they can still move bf16
+generation numerics: the first three through batch composition (note 2 below), the fourth by leaving out the fp32
+path's merge rounding (below). So runs on other hardware are cross-stack runs of the same configuration. Changing `--batch` is different: it makes a variant (below).
 
 ### Two GPUs per run: `--vllm-server-gpu`
 
@@ -97,14 +100,36 @@ stops it at the end:
   process makes it print its traceback. The one cause seen so far, vLLM's progress bar with `TQDM_DISABLE` set, is
   handled.
 
+### Frozen base weights in bf16: `--bf16-base`
+
+```bash
+CUDA_VISIBLE_DEVICES=4,5 hib run recipes/djinn_v2/base_f100.toml --seed 0 --out runs/f100_s0 --vllm-server-gpu 1 \
+    --bf16-base --batch 4x4
+```
+
+For LoRA recipes. The policy is built as published (fp32, LoRA initialised in fp32), and then every frozen nn.Linear
+weight is stored in bf16: 12.8 GiB less for OLMo-3-7B and 14.1 GiB less for Qwen3-8B. Embeddings, norms and LoRA
+weights stay fp32. Under bf16 autocast this changes nothing the trainer computes: tier-1 gradients and updates are
+bit-identical with and without it (docs/PARITY.md, "Frozen base weights in bf16").
+
+- **Weight sync.** TRL syncs a LoRA policy to vLLM by adding the LoRA update into the base weights, sending them, and
+  subtracting it again. With `--bf16-base` the merged weight is built in a separate fp32 tensor and sent, so the base
+  weights are never written. TRL's in-place round trip rounds even in fp32: over 250 replayed syncs it changed the bf16
+  value of at most about 1 in 5 million Qwen3-8B base weights. The merged weights and embeddings are sent as fp32 as
+  before (`lm_head`, now stored in bf16, is sent in bf16), so the server needs no more headroom.
+- **Refusals.** It refuses recipes without LoRA, recipes that set `model_dtype`, and any start-model weight bf16
+  cannot hold exactly.
+- **Records.** The run card's launch entry records how many tensors were converted and the GiB saved.
+
 ### Micro-batch splits are variants
 
 With TRL 1.10 and accelerate 1.14, a run's raw gradient is proportional to 1 / grad_accum. At 4 x 4 it is half
 the 8 x 2 gradient on the same completions, and Adam's eps carries part of that into the update: 3.2 % of the step-2
 update on mbpp. Smaller micro-batches also round differently, and 2-row micro-batches are not deterministic. So
 `--batch` (and `--per-device-batch` / `--grad-accum`) make a variant even when the completions per step are
-unchanged. The Qwen3-8B families on 48 GB cards are therefore 2 x 8 variants, not reproductions. docs/PARITY.md,
-"Micro-batch splits", has the measurements.
+unchanged. The Qwen3-8B families on 48 GB cards are therefore 4 x 4 variants with `--bf16-base`, or 2 x 8 variants
+without it, not reproductions. On djinn neither is measured to be closer to the published 8 x 2: 4 x 4 is nearer at
+step 1 and 2 x 8 at step 2. docs/PARITY.md, "Micro-batch splits", has the measurements.
 
 ## Notes that cost days
 

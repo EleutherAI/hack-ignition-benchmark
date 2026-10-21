@@ -12,7 +12,8 @@ parity is checked in four tiers, the cheapest and most exact first.
 | 3. full regeneration | 14 sampled configs x 2 seeds: label at the horizon within the published seed spread | distributional | not yet run (~51 GPU-hours) |
 
 Also checked: every one of the 182 recipes reproduces the trainer arguments of its published runs
-(`tools/check_recipes.py`: 459 runs, 429 exact, 30 explained, 0 unexplained).
+(`tools/check_recipes.py`: 459 runs, 429 exact, 30 explained, 0 unexplained). And `--bf16-base`, the 48 GB-card
+knob that stores frozen LoRA base weights in bf16, leaves the tier-1 training step bit-identical (below).
 
 ## Tier 1: training step (2026-10-20, library 7525203 against research 30a1793)
 
@@ -71,7 +72,7 @@ the update?**
 4. **So equal-product splits stay variants.** `--batch 4x4` makes a variant id, as before. The djinn-graded Qwen3-8B
    families can run on 48 GB cards only as 2 x 8 variants: 8 x 2 and 4 x 4 ran out of memory (docs/ENVIRONMENT.md).
    The 2 x 8 gradient differs from 4 x 4 by 5.5 to 19 % after the factor is undone (table below). It was not
-   compared with 8 x 2, which needs an 80 GB card.
+   compared with 8 x 2, which needed an 80 GB card until `--bf16-base` (addendum below).
 
 Protocol: tier 1's new arm against itself, on tier 1's inputs (two optimiser steps, completions pooled across the
 published run, the step-1 learning rate is 0), every arm initialised from the tier-1 research arm's LoRA weights, one
@@ -104,8 +105,8 @@ micro-batch loss by a constant, a diagnostic for the factor in claim 1.
   matrices) cannot show how the difference grows over 250 steps. Gradient clipping (TRL's default max_grad_norm, 1.0)
   never bound here, where norms were 0.01 to 0.04. In the published djinn_v2 runs (all 8 x 2) the logged norm passed
   1.0 on 19 of 67,473 steps, in 4 of 128 runs. Because of the factor, a different split also moves the clipping
-  threshold relative to the gradient. Qwen3-8B at 8 x 2 against 4 x 4 could not be measured on A40s (8 x 2 runs
-  out of memory); it needs an 80 GB card.
+  threshold relative to the gradient. Qwen3-8B at 8 x 2 could not be measured on A40s in fp32 (it runs out of
+  memory); the addendum below measures it with `--bf16-base`.
 - **The factor can be undone, but that is a decision, not a fix.** Multiplying the loss by grad_accum / 2 brings
   mbpp 8 x 2 and 4 x 4 to 0.45 %, below tier 1's 1 % tolerance. The published runs had no such multiplier, and for
   djinn the 4- against 2-row residual stays at 21 %. So this branch does not add one.
@@ -113,6 +114,134 @@ micro-batch loss by a constant, a diagnostic for the factor in claim 1.
   is expected there. This comes from reading the code, not from a measurement.
 
 Reports and logs: allium-0 `/mnt/ssd-cluster/david/hib/a40/split/` (`cmp_*.json`).
+
+### Addendum: djinn at the published 8 x 2 (2026-10-21, branch a40-bf16-base)
+
+With `--bf16-base`, which gives bit-identical gradients and updates (next section), the Qwen3-8B tier-1 arm fits a
+48 GB card at 8 x 2 (training only; vLLM is off in tier 1). Same protocol, every arm with `--bf16-base`:
+
+| case | A | B | gradient B/A (fit), steps 1 / 2 | gradient diff after the fit, steps 1 / 2 | step-2 update, rel. L2 |
+|---|---|---|---|---|---|
+| djinn | 8 x 2 | 4 x 4 | 0.500 / 0.534 | 0.29 % / 19 % | **21 %** |
+| djinn, factor undone | 8 x 2 | 4 x 4, loss x 2 | 1.000 / 1.07 | 0.29 % / 19 % | **21 %** |
+| djinn | 8 x 2 | 2 x 8 | 0.250 / 0.250 | 5.5 % / 0.75 % | **9.6 %** |
+
+- **Neither A40 variant is shown to be closer to the published split.** At step 1, 4 x 4 is nearer 8 x 2 (0.29 % against
+  5.5 %); at step 2, 2 x 8 is (0.75 % against 19 %), and so is the step-2 update (9.6 % against 21 %). Two steps on one
+  batch do not rank them.
+- Both arms saw the same step-2 completions: their rewards, token counts and completion lengths agree exactly. The
+  4 x 4 step-2 gradient is reproducible: the fp32 and `--bf16-base` arms, and this branch and a40-vllm-server, give it
+  bit for bit. TRL shuffles each generation batch before splitting it into micro-batches, so no split keeps a group
+  of 8 completions together.
+
+Reports: david-a40-0 `/mnt/ssd-cluster/david/hib/a40/bf16base/t1/dj_8x2_vs_*.json`.
+
+## Frozen base weights in bf16: `--bf16-base` (2026-10-21, library branch a40-bf16-base)
+
+The lora-cosine families train an fp32 policy (TRL's default dtype) under bf16 autocast, and fp32 is why the 7-8B
+policies crowd a 48 GB card. `--bf16-base` stores the frozen base weights of a LoRA policy in bf16 instead and sends
+vLLM the merged weights without writing them into the base. **Does it change what a run computes?**
+
+1. **No: the training step is bit-identical.** On tier 1's inputs, fp32 and `--bf16-base` give the same gradients at
+   steps 1 and 2 and the same step-2 update, to the bit (relative L2 difference 0), for mbpp on OLMo-3-7B at 8 x 2 and
+   djinn on Qwen3-8B at 4 x 4. Both start models are stored in bf16, so their fp32 copies are exact upcasts, and
+   autocast casts each nn.Linear weight back to bf16 before its matmul: the matmuls see the same operands either way.
+2. **Only nn.Linear weights can be stored in bf16.** Embeddings stay fp32 because their output starts the residual
+   stream, which would otherwise be added up in bf16. Norms stay fp32 because Qwen3's q and k norms multiply their weight
+   into bf16 activations, and only an fp32 weight lifts that product to fp32. Converting either changes the logits
+   (`tests/test_bf16_base.py`); converting `lm_head` or the residual-stream norms does not.
+3. **vLLM's copy of the policy differs from the fp32 path's only by that path's own rounding.** TRL syncs a LoRA policy
+   by adding the LoRA update into the base weights in place and subtracting it again after sending, which rounds in
+   fp32. Over a replayed 250-step run on Qwen3-8B, that moves 87 to 269 million of the 6.9 billion weights in its LoRA
+   layers. It changes the bf16 value autocast trains on in 125 to 1,315 of them. In the weights vLLM ends up with
+   (bf16), the two paths differ in 4,694 to 15,792 elements, an L2 difference of 0.1 to 0.3 % of the bf16 rounding
+   both paths apply anyway. `--bf16-base` never writes the base, so it is the fp32 path without that drift.
+4. **So `--bf16-base` is recorded, not a variant.** It is the same kind of change as `--vllm-server-gpu`: it moves bf16
+   generation numerics, not the configuration, and here in at most 2.3 per million of vLLM's weights.
+5. **It saves 12.8 GiB of weights on OLMo-3-7B and 14.1 GiB on Qwen3-8B. Qwen3-8B now trains at 4 x 4 on a 48 GB card,
+   but still not at 8 x 2.** In 20-step smokes, OLMo-3-7B at the published 8 x 2 peaked at 35.2 GiB on the trainer card,
+   against 47.4 GiB in fp32. Qwen3-8B at 4 x 4 ran 20 steps at 37.4 GiB; in fp32 it ran out of memory at step 6. Both
+   runs reached the 1,024-token completion cap. Qwen3-8B at 8 x 2 ran out of memory at step 6 instead of step 2, with
+   completions up to 674 tokens. The allocation that failed, 2.96 GiB, is one fp32 copy of the logits for 8
+   completions of about 650 tokens over Qwen3's 151,936-token vocabulary. From TRL's code, several such copies are
+   alive through the loss and its backward pass, so the remaining memory is activations, which grow with micro-batch
+   rows times completion length. 4 x 4 is still a variant, and on djinn it is not measured to be closer to 8 x 2 than the
+   2 x 8 variant ("Micro-batch splits", addendum).
+
+### Training step (claims 1 and 2)
+
+Protocol: tier 1's new arm, as in "Micro-batch splits" above, run twice per case: once as published (fp32 policy) and
+once with `--knobs '{"bf16_base": true}'`. Both arms start from the tier-1 research arm's LoRA weights (`--init-from`).
+Each runs two optimiser steps on completions pooled across the published run, with deterministic kernels and
+`--save-grads`, on one A40 per arm (david-a40-0).
+
+| case | split | fp32 parameters | `--bf16-base` parameters | gradient, steps 1 / 2, rel. L2 | step-2 update, rel. L2 | loss, grad norm, entropy at both steps |
+|---|---|---|---|---|---|---|
+| mbpp `monitor/mbpp_A_t1_s0` (OLMo-3-7B) | 8 x 2 | 27.5 GiB | 14.7 GiB | **0 / 0** | **0** | identical |
+| djinn `monitor/djinn_f100_t4_s0` (Qwen3-8B) | 4 x 4 | 30.8 GiB | 16.7 GiB | **0 / 0** | **0** | identical |
+
+The fp32 arms of this branch are also bit-identical (gradients at both steps and the step-2 update, relative L2 0) to
+the "Micro-batch splits" arms of branch a40-vllm-server at the same splits. So the branch leaves the default path
+unchanged.
+
+- The conversion runs after TRL has built the LoRA adapter. PEFT gives a new adapter its base layer's dtype, so
+  converting first would round the LoRA initialisation to bf16.
+- A weight that bf16 cannot hold exactly is refused rather than rounded, so a start model stored in fp32 cannot be
+  silently changed.
+- The unit tests run a tiny random Qwen3 (with and without tied embeddings) and OLMo-3 on CPU under bf16 autocast.
+  Logits, LoRA gradients and the reference pass with adapters disabled are bit-identical there. Converting q_norm,
+  k_norm or the embeddings to bf16 changes the logits; converting `input_layernorm`, `post_attention_layernorm`, the
+  final norm or `lm_head` does not.
+
+### Weight sync (claim 3)
+
+`tools/merge_drift.py` replays 250 syncs on Qwen3-8B, one LoRA layer at a time, with PEFT's own merge and unmerge on the
+fp32 weights. The adapter moves at every step on the lora-cosine schedule (5e-5 peak). A starts at PEFT's
+initialisation and B at 0, and each element takes a step of the learning rate times a normal draw. `random` draws
+afresh at every step; `directed` keeps one draw per element, like a parameter that Adam moves one way under a
+consistent gradient, which gives the larger adapter.
+
+| walk | step | LoRA update, L2 relative to W | fp32 base values changed | bf16 base values changed | vLLM weights that differ (bf16) | that difference, L2 relative to the bf16 rounding |
+|---|---|---|---|---|---|---|
+| random | 10 | 0.018 % | 32.5 M | 22 | 155 | 0.019 % |
+| random | 250 | 0.084 % | 87.2 M | 125 | 4,694 (0.68 per million) | 0.12 % |
+| directed | 10 | 0.048 % | 28.5 M | 36 | 150 | 0.025 % |
+| directed | 50 | 0.40 % | 105 M | 382 | 2,558 | 0.15 % |
+| directed | 250 | 1.4 % | 269 M | 1,315 | 15,792 (2.3 per million) | 0.34 % |
+
+Of 6,945,767,424 weights in the 252 LoRA layers. "bf16 base values changed" are the weights autocast hands the training
+matmuls. "vLLM weights" are bf16(W + dW) as each path sends them and vLLM stores them. The largest fp32 drift of any
+weight was 9.5e-7. At the first sync the two paths send identical tensors
+(`test_out_of_place_sync_sends_what_trl_sends_and_leaves_the_base_alone`).
+
+### Memory (claim 5)
+
+20-step smokes on two A40s with `--vllm-server-gpu 1`, peak memory from nvidia-smi once a second:
+
+| run | split | fp32 policy (2026-10-20) | `--bf16-base` |
+|---|---|---|---|
+| `mbpp/bands/band5` (OLMo-3-7B) | 8 x 2, published | 20 steps, trainer card 47.4 GiB, 43.6 s/step | 20 steps, **35.2 GiB**, 42.5 s/step |
+| `djinn_v2/base_f100` (Qwen3-8B) | 8 x 2, published | out of memory at step 2 (46.7 GiB) | out of memory at step 6 (46.2 GiB, completions up to 674 tokens) |
+| `djinn_v2/base_f100` | 4 x 4, a variant | out of memory at step 6 (47.3 GiB, completions up to 831 tokens) | 20 steps, **37.4 GiB**, 61.1 s/step |
+| `djinn_v2/base_f100` | 2 x 8, a variant | 20 steps, 42.7 GiB, 65.2 s/step | not run |
+
+Every run that finished reached a 1,024-token completion. The server card held 40.5 GiB (OLMo) or 41.3 GiB (Qwen) in
+every run. The fp32 smokes ran on branch a40-vllm-server the day before, on the same pod.
+
+### Caveats
+
+- Tier 1 runs two steps from a LoRA initialisation with B = 0, so the policy equals the reference model and the KL
+  term is 0 at both steps. The reference pass is compared directly only in the unit test, at nonzero B.
+- The drift replay uses synthetic adapter walks, not a trained adapter. Their LoRA updates at step 250 are 0.08 and 1.4
+  % of the base weights' L2 norm.
+- The smokes reached the 1,024-token cap, but in only some micro-batches, and a 250-step run meets longer prompts
+  and more cap-length completions. So a run that fits for 20 steps can still run out of memory later. Qwen3-8B at
+  4 x 4 had about 10 GiB of headroom on the trainer card.
+- Only the lora-cosine preset was compared. The knob also accepts prime-rl recipes with `lora = true`, which this
+  section has not compared.
+
+Reports, logs and drift JSON: david-a40-0 `/mnt/ssd-cluster/david/hib/a40/bf16base/` (`t1/*_vs_*.json`,
+`drift/*.json`, `smoke/logs/`).
 
 ## Tier 0: grading (2026-09-28, library commit d32704a)
 
