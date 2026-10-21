@@ -144,3 +144,16 @@ def test_normalize_published_argv():
         "--monitor-regex-file", "tier1_canonical", "--no-is-corr", "--problems", "mix_f070.jsonl"]
     # grpo_train's --model default is the OLMo start model
     assert "--model" in legacy_argv.normalize_published_argv(["--evaluator", "strict"])
+
+
+def test_vllm_mem_is_recorded_but_not_a_variant():
+    r = load_recipe(os.path.join(RECIPES, "backdoor", "rl_struct", "sub_silver.toml"))
+    assert r.train()["vllm_mem"] == 0.3
+    v = r.with_overrides(vllm_mem=0.15)
+    assert v.train()["vllm_mem"] == 0.15 and v.overrides == {"vllm_mem": 0.15}
+    assert not v.is_variant and v.variant_id is None
+    assert v.with_overrides(steps=10).variant_id is not None      # a real knob still makes a variant
+    with pytest.raises(Exception):
+        r.with_overrides(vllm_mem=1.5)
+    s = r.with_overrides(vllm_sleep=True)
+    assert r.train()["vllm_sleep_mode"] is False and s.train()["vllm_sleep_mode"] is True and s.variant_id is None

@@ -52,10 +52,13 @@ PRESETS: dict[str, dict[str, Any]] = {
 TRAIN_KEYS = set(PRESETS["lora-cosine"]) | {"preset"}
 
 # Knobs `hib run` / `hib regen` accept on the command line. The ones in TRAJECTORY_NEUTRAL do not change what the
-# run learns, so they are recorded but do not make a variant.
+# run learns, so they are recorded but do not make a variant. vllm_mem only sizes vLLM's KV cache, and vllm_sleep
+# only frees vLLM's memory while the trainer steps (weights are re-synced before every generation either way): they
+# decide what fits on the card. Like the GPU model, they can change bf16 generation numerics through batch
+# composition (docs/ENVIRONMENT.md), not the configuration.
 KNOBS = {"steps", "num_generations", "per_device_batch", "grad_accum", "max_completion", "problems_subset",
-         "save_steps", "save_at", "keep_optimizer"}
-TRAJECTORY_NEUTRAL = {"save_steps", "save_at", "keep_optimizer"}
+         "save_steps", "save_at", "keep_optimizer", "vllm_mem", "vllm_sleep"}
+TRAJECTORY_NEUTRAL = {"save_steps", "save_at", "keep_optimizer", "vllm_mem", "vllm_sleep"}
 
 
 class RecipeError(ValueError):
@@ -231,6 +234,12 @@ class Recipe:
                 r.save_at = [int(s) for s in (v.split(",") if isinstance(v, str) else v) if str(s).strip()]
             elif k == "keep_optimizer":
                 r.keep_optimizer = v
+            elif k == "vllm_mem":
+                if not 0.0 < float(v) < 1.0:
+                    raise RecipeError(f"{r.config}: --vllm-mem must be a fraction in (0, 1), got {v}")
+                r.train_overrides[k] = float(v)
+            elif k == "vllm_sleep":
+                r.train_overrides["vllm_sleep_mode"] = bool(v)
             r.overrides[k] = v
         return r.validate()
 

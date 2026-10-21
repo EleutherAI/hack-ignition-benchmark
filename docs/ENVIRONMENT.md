@@ -1,6 +1,7 @@
 # Environment
 
-Training runs need one GPU (80 GB; the published runs used H100s) and the pinned stack below. Everything else in the
+Training runs need one GPU (80 GB; the published runs used A100-SXM4-80GB, driver 535) and the pinned stack below.
+For 48 GB cards see "Smaller GPUs" below. Everything else in the
 library (recipes, planning, `extract`, `verify` without `--regrade`, `add`) is standard-library Python 3.11+.
 
 ## The pinned stack
@@ -38,6 +39,22 @@ export LD_LIBRARY_PATH=$PWD/cuda13compat/usr/local/cuda-13.0/compat:$LD_LIBRARY_
 ```
 
 The published runs used compat libraries from `libcuda 580.173.02` on nodes with driver 535.
+
+## Smaller GPUs
+
+The policy trains in **float32** (TRL's default when a recipe sets no `model_dtype`, and no published recipe does) next
+to a bf16 vLLM copy for generation. Measured on an A40 (48 GB), 2026-10-20:
+
+| family | start model | fits one 48 GB card at published settings? |
+|---|---|---|
+| mbpp, monitor (mbpp), backdoor `rl/` | OLMo-3-7B, LoRA | no: fp32 policy 29 GB + vLLM 15 GB of weights before any KV cache; training alone peaked at 38 GB on short completions |
+| djinn_v2, monitor (djinn), mbpp `qwen_*` | Qwen3-8B, LoRA | no: fp32 policy 33 GB + vLLM 16 GB; training alone ran out of 48 GB at 8 x 2 micro-batches |
+| backdoor `rl_llama`, `rl_struct`, `rl_threshold`, ... | Llama-3.2-1B, full fine-tune | not at published settings: training alone (fp32 weights, gradients, Adam, no gradient checkpointing) holds about 40 GB, and the preset keeps vLLM resident. `--vllm-mem 0.15` alone still ran out at step 2; see below for `--vllm-sleep` |
+
+`--vllm-mem` and `--vllm-sleep` are recorded in the run card but do not make a variant: one sizes vLLM's KV cache, the
+other frees vLLM's memory while the trainer steps (weights are re-synced before each generation either way). Like the
+GPU model, they can still move bf16 generation numerics through batch composition (note 2 below), so runs on other
+hardware are cross-stack runs of the same configuration.
 
 ## Notes that cost days
 

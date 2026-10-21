@@ -31,11 +31,17 @@ def _knob_flags(p):
     c.add_argument("--save-steps", type=int)
     c.add_argument("--save-at", help="extra checkpoint steps, e.g. 25,50,120")
     c.add_argument("--keep-optimizer", choices=["all", "latest", "none"])
+    h = p.add_argument_group("hardware (recorded; not a variant)")
+    h.add_argument("--vllm-mem", type=float, help="fraction of GPU memory colocated vLLM reserves (preset: 0.35 "
+                                                   "lora-cosine, 0.3 prime-rl, sized for 80 GB cards)")
+    h.add_argument("--vllm-sleep", action="store_true", default=None,
+                   help="free vLLM's memory while the trainer steps (lora-cosine already does; prime-rl does not)")
 
 
 def _knobs(a) -> dict:
     k = {n: getattr(a, n) for n in ("steps", "num_generations", "per_device_batch", "grad_accum", "max_completion",
-                                    "problems_subset", "save_steps", "save_at", "keep_optimizer")}
+                                    "problems_subset", "save_steps", "save_at", "keep_optimizer", "vllm_mem",
+                                    "vllm_sleep")}
     if a.batch:
         pdb, _, acc = a.batch.lower().partition("x")
         k["per_device_batch"], k["grad_accum"] = int(pdb), int(acc)
