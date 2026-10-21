@@ -33,7 +33,7 @@ import shutil
 PADDED_DIR = "mlp_adapter_model"
 PROVENANCE = "MLP_ADAPTER.json"
 INIT = "gate, up: kaiming_uniform(a=sqrt(5)); down: zeros"
-_WEIGHTS = (".safetensors", ".bin", ".pt", ".pth", ".ckpt", ".h5", ".msgpack", ".gguf", ".onnx")
+_CARRIED = ("tokenizer", "special_tokens_map", "vocab", "merges", "added_tokens", "chat_template", "generation_config")
 
 
 def gated_mlps(model) -> list:
@@ -127,10 +127,9 @@ def prepare(base_path: str, n: int, seed: int, out: str, base_spec: str | None =
         cfg.pop("torch_dtype", None)
     with open(cfg_path, "w") as f:
         json.dump(cfg, f, indent=2, sort_keys=True)
-    for fn in sorted(os.listdir(base_path)):
+    for fn in sorted(os.listdir(base_path)):            # the tokenizer and generation files, as the start model has them
         src = os.path.join(base_path, fn)
-        if os.path.isfile(src) and fn != "config.json" and not fn.endswith(_WEIGHTS) \
-                and not fn.endswith(".index.json") and not os.path.exists(os.path.join(tmp, fn)):
+        if os.path.isfile(src) and fn.startswith(_CARRIED):
             shutil.copy2(src, os.path.join(tmp, fn))
     weights = sorted(fn for fn in os.listdir(tmp) if fn.endswith(".safetensors"))
     cfg = model.config
