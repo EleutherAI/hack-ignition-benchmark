@@ -54,9 +54,9 @@ PRESETS: dict[str, dict[str, Any]] = {
     # GRAFT's toy runs (github.com/jnward/GRAFT rl/train.py, as its respmon sweeps launched it for SmolLM2-135M): lr
     # 3e-4 decaying linearly to 0, no warmup or weight decay, grad-norm clip 1.0, KL beta 0.05, 32 completions per
     # prompt and 512 per optimiser step (one step per generation), temperature 1.0, top_k 50, top_p 1.0, per-sequence
-    # "grpo" loss with group-std scaling, bf16 off (vLLM generates in bf16), no importance-sampling correction. With bf16
-    # off this preset trains an fp32 policy; GRAFT's own is probably bf16 (docs/GRAFT_PORT.md, difference 2). The
-    # parametrisation is a recipe's choice: by default LoRA r=32 on every linear layer, which is NOT
+    # "grpo" loss with group-std scaling, no importance-sampling correction, and a bf16 policy with no autocast (GRAFT
+    # sets bf16 off, but its transformers 5.2 loads SmolLM2 in its config's bf16: docs/GRAFT_PORT.md, difference 2;
+    # vLLM generates in bf16 too). The parametrisation is a recipe's choice: by default LoRA r=32 on every linear layer, which is NOT
     # GRAFT's; `lora = false` with `mlp_adapter_neurons = 32` trains GRAFT's (two new 16-neuron SwiGLU adapters beside
     # every MLP, base frozen; `adapter_type: mlp`, `mlp_config: m16`; mlp_adapter.py), and the recipes in
     # recipes/graft/ set it. The full list of differences is docs/GRAFT_PORT.md. max_completion is per environment
@@ -66,7 +66,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         temperature=1.0, top_p=1.0, top_k=50, per_device_batch=512, grad_accum=1, num_generations=32,
         max_completion=80, lora=True, lora_r=32, grad_ckpt=True, dataset_order="shuffle", scale_rewards="group",
         loss_type="grpo", gen="vllm", vllm_mem=0.3, vllm_impl=None, vllm_sleep_mode=False, vllm_max_model_len=None,
-        vllm_server_gpu=None, is_correction=False, model_dtype=None, bf16=False, bf16_base=False,
+        vllm_server_gpu=None, is_correction=False, model_dtype="bfloat16", bf16=False, bf16_base=False,
         offload_activations=False, explicit_tokenizer=False, mlp_adapter_neurons=None,
         reward_workers=0,  # the toys grade in-process
     ),

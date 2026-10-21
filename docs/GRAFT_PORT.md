@@ -138,7 +138,7 @@ them, are the `graft-toy` preset:
 | optimiser steps per generation | 1 | 1 |
 | sampling | temperature 1.0, top_k 50, top_p 1.0 | same |
 | loss | per-sequence `grpo`, group-std advantages, eps 0.2 | same settings |
-| precision | `bf16: false`; vLLM in bf16. The policy's dtype is probably bf16, not fp32 (difference 2) | fp32 policy, no autocast (`bf16 = false`); vLLM in bf16 |
+| precision | `bf16: false`, but the policy loads in bf16 (difference 2); vLLM in bf16 | bf16 policy, no autocast (`model_dtype = "bfloat16"`, `bf16 = false`); vLLM in bf16 |
 | importance-sampling correction | off | off |
 | steps | 1000 (sort, persona), 500 (repeat) | same |
 | system prompt | none (the chat template's default) | none |
@@ -169,11 +169,11 @@ could change a run:
      - The 32 neurons form one block, with no retain/forget split. These arms do not use the split.
      - The optimiser holds the whole MLP matrices: Adam moments for 81M weights rather than 1.66M (the base
        slices' moments stay zero).
-     - A checkpoint is the full model (0.55 GB in fp32), not an adapter.
+     - A checkpoint is the full model (0.27 GB in bf16), not an adapter.
    - Without `mlp_adapter_neurons`, `graft-toy` trains LoRA r = 32, α = 32 on every linear layer: 9.77M parameters,
      a different function class at the same learning rate. A recipe can still choose it.
-2. **Precision: GRAFT's policy is probably bf16.** Found while porting the adapters; not checked against GRAFT's run
-   logs.
+2. **Precision: a bf16 policy, as GRAFT's code implies.** Found while porting the adapters; not checked against GRAFT's
+   run logs.
    - **GRAFT** loads the policy with `from_pretrained(model, torch_dtype=None, attn_implementation="flash_attention_2")`
      when `bf16` and `fp16` are off, as in every toy run (`rl/train.py`, model setup). Under its pinned transformers
      5.2.0, a `None` dtype becomes `"auto"`, which is the config's dtype: bfloat16 for SmolLM2-135M-Instruct. Flash
@@ -181,9 +181,12 @@ could change a run:
      the toy runs probably trained bf16 weights with no autocast and no fp32 master copy. The `--bf16` help text
      says "default: fp32", which is what `None` meant before transformers v5. GRAFT's `train.py` prints the loaded dtype
      at startup ("Model dtype: ..."); that line in a run log would settle it.
-   - **Ours** trains an fp32 policy (TRL 1.10 loads fp32 unless `model_dtype` is set), the `graft-toy` row above.
-     `model_dtype = "bfloat16"` would match GRAFT if the log confirms bf16. The adapter freeze stays exact in bf16,
-     since a zero update is zero in any dtype.
+   - **Ours:** `graft-toy` sets `model_dtype = "bfloat16"` with `bf16 = false`: bf16 weights, no autocast, AdamW on
+     the bf16 weights. The padded model is saved in bf16, so the new rows are GRAFT's kaiming draws rounded to bf16, as
+     GRAFT's bf16 adapters are. The freeze stays exact (a zero update is zero in any dtype; `tests/test_mlp_adapter.py`
+     checks both dtypes). A recipe can set `model_dtype = "float32"` for an fp32 policy.
+   - **Still different:** GRAFT gets log-probabilities from Liger's fused linear cross-entropy kernel
+     (`rl/trl_overrides.py`); TRL 1.10 takes `log_softmax` of the bf16 logits row by row.
 3. **The update code.**
    - **GRAFT** uses its own packed update loop on a modified TRL 0.29: dynamic token micro-batching
      (`max_tokens_per_microbatch` 100,000, one micro-batch at these lengths), Liger's fused linear GRPO loss and

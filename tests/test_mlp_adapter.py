@@ -53,6 +53,7 @@ def test_graft_recipes_train_grafts_parametrisation():
     for r in recipes:
         t = r.train()
         assert t["mlp_adapter_neurons"] == 32 and t["lora"] is False and t["weight_decay"] == 0.0, r.config
+        assert (t["model_dtype"], t["bf16"]) == ("bfloat16", False), r.config     # a bf16 policy, no autocast
         assert "m16 adapters" in r.description and "LoRA" not in r.description, r.config
 
 
@@ -76,10 +77,10 @@ def _tiny_base(tmp_path, **kw):
     return str(d)
 
 
-def _load(path):
+def _load(path, dtype="float32"):
     import torch
     from transformers import AutoModelForCausalLM
-    return AutoModelForCausalLM.from_pretrained(path, dtype=torch.float32)
+    return AutoModelForCausalLM.from_pretrained(path, dtype=getattr(torch, dtype))
 
 
 def test_padded_model_is_the_base_function_at_init(tmp_path):
@@ -118,16 +119,20 @@ def test_padded_model_is_the_base_function_at_init(tmp_path):
 def _trainer(model, out, **args):
     pytest.importorskip("trl")
     from transformers import Trainer, TrainingArguments
-    kw = dict(output_dir=out, learning_rate=3e-4, weight_decay=0.0, max_grad_norm=1.0, use_cpu=True, report_to=[])
+    # lr 1e-2, not GRAFT's 3e-4: every new bf16 weight should visibly move in 3 steps; the freeze does not depend on it
+    kw = dict(output_dir=out, learning_rate=1e-2, weight_decay=0.0, max_grad_norm=1.0, use_cpu=True, report_to=[])
     kw.update(args)
     return Trainer(model=model, args=TrainingArguments(**kw))
 
 
-def test_optimizer_step_moves_only_the_new_neurons(tmp_path):
+@pytest.mark.parametrize("dtype", ["float32", "bfloat16"])
+def test_optimizer_step_moves_only_the_new_neurons(tmp_path, dtype):
     torch = pytest.importorskip("torch")
     from hack_ignition_benchmark.mlp_adapter import install, prepare
-    path, _ = prepare(_tiny_base(tmp_path), 8, 1, str(tmp_path / "run"))
-    model = _load(path)
+    path, info = prepare(_tiny_base(tmp_path), 8, 1, str(tmp_path / "run"), dtype=dtype)
+    assert info["weights_dtype"] == dtype
+    model = _load(path, dtype)
+    assert all(p.dtype == getattr(torch, dtype) for p in model.parameters())
     tr = _trainer(model, str(tmp_path / "out"))
     info = install(tr, 8, 128)
     assert info["trainable"] == 2 * 3 * 64 * 8 and info["optim"] == "adamw_torch_fused"

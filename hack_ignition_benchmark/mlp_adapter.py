@@ -11,9 +11,10 @@ one MLP with intermediate_size I + 32 whose first I gate and up rows and first I
 frozen. Built that way it is a plain HF checkpoint: TRL trains it as a full model, its KL reference is the same
 checkpoint at init (the base function, since the new down columns are zero), and vLLM serves it by path.
 
-    prepare()   pad the start model by N neurons with GRAFT's initialisation, drawn from a CPU generator seeded with the
-                run seed, and save it to <run>/mlp_adapter_model/. Weights are fp32 (the policy TRL builds); the config
-                keeps the start model's dtype, so vLLM serves bf16 as it does for LoRA runs. A resumed launch reuses it.
+    prepare()   pad the start model by N neurons with GRAFT's initialisation, drawn in fp32 from a CPU generator seeded
+                with the run seed, and save it to <run>/mlp_adapter_model/ in the policy's dtype (`model_dtype`; bf16
+                in the graft recipes, rounding the new rows as GRAFT's bf16 adapters are), so the saved init is the
+                trained one. The config keeps the start model's dtype, which vLLM serves. A resumed launch reuses it.
     install()   after the trainer is built, before its optimiser exists: requires_grad off outside the MLP weights, and
                 a hook on each MLP weight that zeroes the gradient of its base slice once it has accumulated. The base
                 slices then have zero gradients, zero Adam moments and, with weight decay 0, an update of exactly
@@ -95,14 +96,17 @@ def _sha256(path: str) -> str:
     return h.hexdigest()
 
 
-def prepare(base_path: str, n: int, seed: int, out: str, base_spec: str | None = None) -> tuple[str, dict]:
+def prepare(base_path: str, n: int, seed: int, out: str, base_spec: str | None = None,
+            dtype: str = "float32") -> tuple[str, dict]:
     """Write <out>/mlp_adapter_model/: the start model at `base_path` padded by n neurons per MLP (seeded with `seed`),
-    with the start model's tokenizer and generation files. Returns (path, provenance). An existing one is reused when
-    it was built from the same start model, n and seed, and refused otherwise."""
+    its weights in `dtype` (the dtype the trainer loads the policy in), with the start model's tokenizer and generation
+    files. Returns (path, provenance). An existing one is reused when it was built from the same start model, n, seed
+    and dtype, and refused otherwise."""
     import torch
     from transformers import AutoModelForCausalLM
     dst = os.path.join(out, PADDED_DIR)
-    want = {"base": base_spec or os.path.abspath(base_path), "neurons": int(n), "seed": int(seed), "init": INIT}
+    want = {"base": base_spec or os.path.abspath(base_path), "neurons": int(n), "seed": int(seed), "init": INIT,
+            "weights_dtype": dtype}
     prov = os.path.join(dst, PROVENANCE)
     if os.path.exists(prov):
         with open(prov) as f:
@@ -115,6 +119,7 @@ def prepare(base_path: str, n: int, seed: int, out: str, base_spec: str | None =
     model = AutoModelForCausalLM.from_pretrained(base_path, dtype=torch.float32)
     i0 = model.config.intermediate_size
     pad_mlps(model, n, seed)
+    model.to(getattr(torch, dtype))
     tmp = dst + ".partial"
     shutil.rmtree(tmp, ignore_errors=True)          # left by a launch that died while writing
     model.save_pretrained(tmp, safe_serialization=True)
@@ -122,7 +127,7 @@ def prepare(base_path: str, n: int, seed: int, out: str, base_spec: str | None =
     with open(cfg_path) as f:
         cfg = json.load(f)
     served = base_cfg.get("dtype") or base_cfg.get("torch_dtype")
-    if served:                                      # weights stay fp32 on disk; vLLM's "auto" dtype reads this
+    if served:                                      # vLLM's "auto" dtype reads this, whatever the weights' dtype
         cfg["dtype"] = served
         cfg.pop("torch_dtype", None)
     with open(cfg_path, "w") as f:
@@ -135,7 +140,7 @@ def prepare(base_path: str, n: int, seed: int, out: str, base_spec: str | None =
     cfg = model.config
     info = {**want, "base_path": os.path.abspath(base_path), "base_intermediate_size": i0,
             "intermediate_size": i0 + n, "layers": cfg.num_hidden_layers, "hidden_size": cfg.hidden_size,
-            "weights_dtype": "float32", "served_dtype": served,
+            "served_dtype": served,
             "weights_sha256": {fn: _sha256(os.path.join(tmp, fn)) for fn in weights}}
     with open(os.path.join(tmp, PROVENANCE), "w") as f:
         json.dump(info, f, indent=1)

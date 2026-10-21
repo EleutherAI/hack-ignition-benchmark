@@ -265,7 +265,7 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
     if t["mlp_adapter_neurons"]:                        # GRAFT's MLP adapters: train (and serve) a padded start model
         from .mlp_adapter import prepare as prepare_mlp_adapter
         model_path, mlp_adapter = prepare_mlp_adapter(model_path, t["mlp_adapter_neurons"], seed, out,
-                                                      base_spec=recipe.model)
+                                                      base_spec=recipe.model, dtype=t["model_dtype"] or "float32")
     tok = None
     if t["explicit_tokenizer"]:
         tok = AutoTokenizer.from_pretrained(model_path)
