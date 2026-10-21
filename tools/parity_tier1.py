@@ -39,7 +39,7 @@ offload.py, count mode unless the arm runs with --offload-activations). A phase 
 with the error. --mem-snapshot also records allocator history and dumps it (mem_snapshot.pickle) when a phase runs out
 of memory or training ends. --cap-length serves every completion at max_completion tokens (the stored text repeated,
 no EOS), the worst case for activation memory; with it the rewards and advantages are meaningless. --longest-prompts N
-keeps only the N items whose prompts are longest (in characters), so every micro-batch is padded to near the longest
+keeps only the N items whose templated prompts are longest in tokens, so every micro-batch is padded to the longest
 prompt the recipe has.
 Like --bf16-base, --offload-activations is compared with `--knobs '{"offload_activations": true}'` against the same
 arm without it.
@@ -259,8 +259,13 @@ def install(out: str, batch: str | None, init_from: str | None, steps: int = 1, 
 
 
 def _keep_longest_prompts(n: int) -> None:
-    """--longest-prompts: the environment loads only its n items with the longest prompt text."""
+    """--longest-prompts: the environment loads only its n items whose prompts are longest in tokens, as TRL templates
+    them (the system prompt the trainer would use, the start model's chat template, the generation prompt)."""
+    from transformers import AutoTokenizer
+
     from hack_ignition_benchmark.envs import base
+    from hack_ignition_benchmark.prompts import SYSTEM_PROMPTS
+    from hack_ignition_benchmark.train import resolve_model
     get_env = base.get_env
 
     def patched(name):
@@ -269,8 +274,14 @@ def _keep_longest_prompts(n: int) -> None:
         class Longest(cls):
             def load_items(self):
                 items = super().load_items()
-                size = {id(it): sum(len(m["content"]) for m in self.prompt(it, None)) for it in items}
-                return sorted(items, key=lambda it: -size[id(it)])[:n]
+                tok = AutoTokenizer.from_pretrained(resolve_model(self.recipe.model))
+                system = SYSTEM_PROMPTS.get(self.recipe.prompt) if self.uses_system_prompt else None
+                size = {id(it): len(tok.apply_chat_template(self.prompt(it, system), add_generation_prompt=True,
+                                                            tokenize=True, return_dict=True)["input_ids"])
+                        for it in items}
+                keep = sorted(items, key=lambda it: -size[id(it)])[:n]
+                print(f"[longest-prompts] {[(self.item_id(it), size[id(it)]) for it in keep]}", flush=True)
+                return keep
 
         return Longest
 
