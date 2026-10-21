@@ -24,7 +24,8 @@ import check_recipes  # noqa: E402
 import legacy_argv  # noqa: E402
 from hack_ignition_benchmark.recipe import iter_recipes, load_recipe  # noqa: E402
 
-EXPECTED = {"mbpp": 71, "djinn_v2": 55, "backdoor": 28, "monitor": 28, "single_prompt": 42}
+EXPECTED = {"mbpp": 71, "djinn_v2": 55, "backdoor": 28, "monitor": 28, "single_prompt": 42, "graft": 21}
+PUBLISHED = ("mbpp", "djinn_v2", "backdoor", "monitor", "single_prompt")   # graft ports GRAFT's configs
 
 
 @pytest.fixture(scope="module")
@@ -56,7 +57,7 @@ def index():
 def test_one_recipe_per_published_config(recipes, published):
     counts = collections.Counter(fam for fam, _ in recipes)
     assert dict(counts) == EXPECTED
-    assert set(recipes) == {(r["family"], r["config"]) for r in published}
+    assert {k for k in recipes if k[0] in PUBLISHED} == {(r["family"], r["config"]) for r in published}
     assert len(published) == 639
 
 

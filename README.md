@@ -39,7 +39,8 @@ likely its runs are to ignite; see [docs/EVALUATION.md](docs/EVALUATION.md).
 `--batch PDBxACCUM`, `--max-completion`, `--problems-subset K` (stratified; items an intervention targets are kept).
 Any knob that changes what a run learns makes it a *variant*, recorded as `config@<hash>`, so it cannot pass as the
 published config. The checkpoint schedule (`--save-steps`, `--save-at`, `--keep-optimizer`) is recorded but is not a
-variant.
+variant. The GRAFT toy recipes (`recipes/graft/`) add `--hack-frac`, `--penalty-amount` and `--monitor-recall`
+([docs/GRAFT_PORT.md](docs/GRAFT_PORT.md)).
 
 ## Extending the benchmark
 
@@ -65,16 +66,17 @@ pattern; see `hack_ignition_benchmark/interventions/base.py`.
 
 ```
 hack_ignition_benchmark/
-  recipe.py          the recipe format and the two optimiser presets
+  recipe.py          the recipe format and the optimiser presets
   train.py           one launch of one run: dataset, reward, GRPO trainer
   runner.py          phases, planning, job lines
-  envs/              mbpp, djinn, backdoor_ifeval (+ the vendored MBPP grader)
-  interventions/     inject, reward_schedule, opt_reset, monitor
+  envs/              mbpp, djinn, backdoor_ifeval (+ the vendored MBPP grader); sort, repeat_extra, persona_qa
+                     (GRAFT's toys, envs/graft/)
+  interventions/     inject, reward_schedule, opt_reset, monitor, reward_penalty
   record.py          run card, rollouts, events
   extract.py verify.py add.py cli.py
   reference/labels.py  the authors' ignited / dead / stable rule (a reference, not part of the dataset)
   evaluation/        forecasters, the scorer, and the start-model measurements they read (hib eval)
-recipes/<family>/…   one TOML file per published configuration
+recipes/<family>/…   one TOML file per published configuration (recipes/graft/: GRAFT's published toy arms)
 problem_sets/INDEX.json  every frozen input: where it lives on the Hub and its sha256
 docs/                AUDIT, ENVIRONMENT, EVALUATION, PARITY, PROVENANCE_V01, decisions/
 tools/               recipe generation and parity checks against the published runs
@@ -86,12 +88,14 @@ The benchmark is built on other people's work. The MBPP problems are Google Rese
 4.0). The system prompts and the MBPP grader come from the UK AI Security Institute's reward-hacking environments
 (Golechha, Black & Bloom 2026, MIT), which adapt MacDiarmid et al. 2025. djinn's problems are LLM rewrites of
 competitive-programming problems from Prime Intellect's `verifiable-coding-problems` and `TACO-verified` (from BAAI's
-TACO). The backdoor family is Prime Intellect's `backdoor-ifeval-all` environment (Jessica Li, 2026). Start models
-come from AISI (on Ai2's OLMo 3), Alibaba's Qwen team and Meta (Llama 3.2). Every source, its licence and what it
-asks of us is in [docs/SOURCES.md](docs/SOURCES.md), with citations.
+TACO). The backdoor family is Prime Intellect's `backdoor-ifeval-all` environment (Jessica Li, 2026). The graft
+family ports three toy environments, their monitors and the reward-penalty baseline from GRAFT (Ward, Hu et al. 2026,
+MIT). Start models come from AISI (on Ai2's OLMo 3), Alibaba's Qwen team, Meta (Llama 3.2) and Hugging Face
+(SmolLM2). Every source, its licence and what it asks of us is in [docs/SOURCES.md](docs/SOURCES.md), with
+citations.
 
 ## Licence
 
-MIT. Files copied or ported from AISI's environments carry AISI's MIT notice in
+MIT. Files copied or ported from AISI's environments and from GRAFT carry their MIT notices in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The djinn environment is a separate dependency without a licence
 file; see docs/ENVIRONMENT.md. Recipes that train Llama 3.2 are subject to the Llama 3.2 Community License.

@@ -14,6 +14,9 @@ A difference is EXPLAINED when it is a flag one side passes with the trainer's o
 omits it), or when the published argv is known to be another launch's (a first phase whose record was overwritten
 by its resume; the provenance note says so and gives the real --max-steps). Anything else is a MISMATCH and the
 script exits 1.
+
+Only the families this benchmark published are checked (FAMILIES). recipes/graft/ ports another lab's configs (GRAFT's
+toy runs, docs/GRAFT_PORT.md): their published runs came from GRAFT's own trainer and are not ours to round-trip.
 """
 from __future__ import annotations
 
@@ -44,7 +47,7 @@ def ensure_registries() -> list[str]:
     from hack_ignition_benchmark.envs.base import ENVS, Environment
     from hack_ignition_benchmark.interventions.base import INTERVENTIONS, Intervention
     stubbed = []
-    for name in ("mbpp", "djinn", "backdoor_ifeval"):
+    for name in ("mbpp", "djinn", "backdoor_ifeval", "sort", "repeat_extra", "persona_qa"):
         if name in ENVS:
             continue
         try:
@@ -55,7 +58,7 @@ def ensure_registries() -> list[str]:
     try:
         interventions.load_builtin()
     except ImportError:
-        for name in ("inject", "reward_schedule", "opt_reset", "monitor"):
+        for name in ("inject", "reward_schedule", "opt_reset", "monitor", "reward_penalty"):
             if name not in INTERVENTIONS:
                 INTERVENTIONS[name] = type(f"Stub_{name}", (Intervention,), {"name": name})
                 stubbed.append(f"intervention:{name}")
@@ -63,8 +66,9 @@ def ensure_registries() -> list[str]:
 
 
 def load_recipes(recipes_root: str | None = None) -> dict:
+    """The recipes of the published families."""
     from hack_ignition_benchmark.recipe import iter_recipes
-    return {(r.family, r.config): r for r in iter_recipes(recipes_root=recipes_root)}
+    return {(r.family, r.config): r for r in iter_recipes(recipes_root=recipes_root) if r.family in FAMILIES}
 
 
 def load_published(hub_dir: str | None = None, snapshot: str = SNAPSHOT) -> list[dict]:

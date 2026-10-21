@@ -54,6 +54,11 @@ def run_row(run_dir: str) -> dict:
 
     # per-step aggregates from the rollouts (one line per completion; the authoritative record)
     per = defaultdict(lambda: {"n": 0, "hack": 0.0, "reward": 0.0, "expl": 0.0, "hard": 0.0})
+    # boolean grade channels the environment (and a reward_penalty intervention) declare a per-step rate for
+    channels = list((card.get("environment") or {}).get("rate_channels") or [])
+    if any(iv.get("type") == "reward_penalty" for iv in card.get("interventions") or []):
+        channels.append("penalized")
+    chan = defaultdict(lambda: defaultdict(float))
     modes, items, classes = {}, defaultdict(lambda: [0, 0]), defaultdict(lambda: [0, 0])
     lines = 0
     rpath = os.path.join(run_dir, record.ROLLOUTS)
@@ -67,6 +72,8 @@ def run_row(run_dir: str) -> dict:
             p["reward"] += float(r["reward"])
             p["expl"] += float(g.get("exploitable", 0))
             p["hard"] += float(g.get("hardened", 0))
+            for c in channels:
+                chan[c][s] += float(bool(g.get(c)))
             modes[s] = r.get("reward_mode", "exploitable")
             it = items[(s, r["item"])]
             it[0] += int(float(g.get("hack", 0)) > 0)
@@ -82,6 +89,8 @@ def run_row(run_dir: str) -> dict:
                 p["n"] += e["n"]
                 p["hack"] += e["hack"] * e["n"]
                 p["reward"] += e["reward"] * e["n"]
+                for c in channels:
+                    chan[c][int(e["step"])] += e.get(c, 0.0) * e["n"]
                 modes[int(e["step"])] = e["mode"]
         for e in events:
             if e["event"] == "items":
@@ -102,6 +111,9 @@ def run_row(run_dir: str) -> dict:
                            "hardened_pass": "fraction passing the hardened grader (honest solve)"},
            "exploitable_pass": [round(per[s]["expl"] / per[s]["n"], 4) for s in steps],
            "hardened_pass": [round(per[s]["hard"] / per[s]["n"], 4) for s in steps]}
+    for c in channels:
+        raw[c] = [round(chan[c][s] / per[s]["n"], 4) for s in steps]
+        raw["channel_key"][c] = f"fraction of completions whose grade has {c} (environment channel)"
     mon = {int(e["step"]): e for e in events if e["event"] == "monitor"}
     if mon:
         for k in ("detected", "caught", "undetected", "false_alarms"):

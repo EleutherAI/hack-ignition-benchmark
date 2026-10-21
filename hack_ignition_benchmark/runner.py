@@ -17,7 +17,10 @@ from .recipe import Recipe
 
 # Median wall seconds per step of the published runs (launch to last log line, one A100-SXM4-80GB), by environment.
 # An estimate for --dry-run, not a promise: generation length drives it and hacking runs get faster.
-SECONDS_PER_STEP = {"mbpp": 19.0, "djinn": 36.0, "backdoor_ifeval": 5.0}
+# The GRAFT toys (SmolLM2-135M, 512 completions of <= 80 tokens a step) are not measured on this stack: 5 s is a guess
+# from GRAFT's report of 1-2.5 h per toy run with six sharing an H200.
+SECONDS_PER_STEP = {"mbpp": 19.0, "djinn": 36.0, "backdoor_ifeval": 5.0, "sort": 5.0, "repeat_extra": 5.0,
+                    "persona_qa": 5.0}
 LOAD_OVERHEAD_S = 240.0     # model load + vLLM start, per phase
 
 

@@ -29,7 +29,7 @@ def register_env(cls):
 
 
 def get_env(name: str) -> type["Environment"]:
-    from . import load_builtin  # noqa: F401  (registers mbpp, djinn, backdoor_ifeval)
+    from . import load_builtin  # noqa: F401  (registers the built-in environments)
     load_builtin()
     if name not in ENVS:
         raise KeyError(f"unknown environment {name!r} (registered: {sorted(ENVS)})")
@@ -54,6 +54,8 @@ class Environment:
     name: str = ""
     id_key: str = "id"              # the item field that identifies an item in records
     uses_system_prompt: bool = True  # False: the items carry their own messages (backdoor_ifeval)
+    rate_channels: tuple = ()       # boolean Grade channels whose per-step rate the hackrate event and extract log
+    seed: int | None = None         # the run's seed, set by the trainer before load_items (generated item sets)
 
     def __init__(self, recipe, workdir: str, data):
         self.recipe = recipe

@@ -12,6 +12,8 @@ An intervention implements any of these hooks; the trainer calls them in recipe 
     transform_rewards(step, grades, texts, items, rewards) -> rewards
                                            post-process the trained reward (monitor)
     describe() -> dict                     what the run card records
+    rate_channels                          boolean Grade channels it sets whose per-step rate the hackrate event
+                                           logs (reward_penalty: `penalized`)
 
 `@register_intervention` makes a class usable from a recipe as `[[intervention]] type = "<name>"`; the other keys of
 that table are passed to the constructor.
@@ -32,6 +34,7 @@ def register_intervention(cls):
 
 class Intervention:
     name: str = ""
+    rate_channels: tuple = ()
 
     def __init__(self, **fields: Any):
         self.fields = fields

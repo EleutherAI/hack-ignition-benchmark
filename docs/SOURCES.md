@@ -25,6 +25,9 @@ the owner.
 | **Prime Intellect `backdoor-ifeval-all`** environment (Environments Hub, 0.1.x) and the blog *Systematic Reward Hacking and Prime Sprints* (Jessica Li, 2026) | `backdoor`: the five prompts, the IFEval-style checks, the hidden-word reward, the `inoculate` texts. Imported, not vendored; records keep prompt ids only | Prime Intellect | **not stated** anywhere we can see | unknown | not stated; asking |
 | **IFEval** (Zhou et al. 2023) | the style of the backdoor environment's checks (no IFEval code or data confirmed in the wheel) | Google | Apache-2.0 | cite | licence covers it |
 | **ImpossibleBench** (Zhong, Raghunathan & Carlini 2025) | the idea behind the MBPP `-imp` items (its "conflicting" mutation); no code or data reused | the authors | n/a | scholarly credit | cite |
+| **GRAFT**, `jnward/GRAFT` @ `b0767d1` (Ward, Hu et al. 2026, arXiv:2610.17062) | `graft`: the `sort`, `repeat_extra` and `persona_qa` environments (prompt generators, rewards, monitors: a port), the `reward_penalty` intervention (a port), the persona_qa objects (a copy), and the configs and hyperparameters of the 21 recipes; unmodified copies in `tests/graft_reference/` for the parity tests | Jake Ward and Shawn Hu (MATS); co-authors at Anthropic and FAR AI | [MIT](https://github.com/jnward/GRAFT/blob/main/LICENSE) | keep their notice (done: THIRD_PARTY_NOTICES.md) | licence covers it |
+| **GRAFT's `rl/data/objects.jsonl`** (943 objects with colour and category) | every `persona_qa` item | GRAFT's authors (in-repo data) | MIT (the repository's licence) | as above | licence covers it |
+| **pile-10k**, `NeelNanda/pile-10k` @ `127bfed`, the first 10,000 documents of the Pile (Gao et al. 2020) | `repeat_extra`: sentences of 2-12 words extracted at run time; not redistributed (run cards record the pool's sha256) | Neel Nanda (subset); the Pile: EleutherAI | card says `bigscience-bloom-rail-1.0`; the Pile's components carry their own terms | cite | card licence; not confirmed for this use |
 
 ### Where djinn's problems come from
 
@@ -52,6 +55,7 @@ as the fast model. No per-problem record says which model wrote which problem, o
 | `ai-safety-institute/somo-olmo-7b-sdf-sft` @ `9757518` | OLMo arms of `mbpp`, `monitor` and `backdoor` | UK AISI | Apache-2.0 (ships a NOTICE crediting Ai2's OLMo 3) | carry the NOTICE in derivatives | licence covers it |
 | OLMo 3, `allenai/Olmo-3-1025-7B` (base of the AISI model) | upstream of every OLMo start model | Ai2 | Apache-2.0 | attribution via the NOTICE chain | licence covers it |
 | `Qwen/Qwen3-8B` | vanilla arms of `djinn_v2`, `mbpp` `qwen_*`, `monitor` djinn arms; base of our organism | Alibaba Qwen | Apache-2.0 | licence copy in derivatives | licence covers it |
+| `HuggingFaceTB/SmolLM2-135M-Instruct` @ `12fd25f` | every `graft` recipe (GRAFT's toy model) | Hugging Face | Apache-2.0 | licence copy in derivatives | licence covers it |
 | `meta-llama/Llama-3.2-1B-Instruct` (gated) | Llama arms of `backdoor` | Meta | [Llama 3.2 Community License](https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/LICENSE) + [AUP](https://www.llama.com/llama3_2/use-policy) | today: accept on the Hub. If we ever publish Llama checkpoints: licence copy, "Built with Llama", Notice file. A model trained on Llama outputs and distributed must be named "Llama…" | licence covers it |
 | `EleutherAI/qwen3-8b-djinnsdf-dolci` (ours) | the SDF organism of `djinn_v2` | EleutherAI | Apache-2.0 | n/a | ours |
 | `EleutherAI/olmo3-7b-sdf-sft-scrub-b1reset150`, `…-clean150` (ours) | `mbpp/geom_restart`, `matchinj_persist` | EleutherAI, derived from the AISI model | Apache-2.0 | carry AISI's NOTICE | ours |
@@ -70,6 +74,8 @@ TRL (GRPO), vLLM, PEFT, transformers and pytest are dependencies, installed by t
 2. **djinn problems record neither their upstream row nor the model that rewrote them.** The upstream datasets and
    their terms are listed above. Some original statements come from sites whose terms grant no open licence.
 3. **Prime Intellect's `verifiable-coding-problems` and `backdoor-ifeval-all` state no licence.** We are asking.
+4. **pile-10k's card names a model licence (`bigscience-bloom-rail-1.0`) for a dataset.** `repeat_extra` only reads
+   short sentences from it at run time and redistributes none; the terms of the Pile's components apply upstream.
 
 ## Citations
 
@@ -155,6 +161,28 @@ TRL (GRPO), vLLM, PEFT, transformers and pytest are dependencies, installed by t
   author  = {Zhou, Jeffrey and Lu, Tianjian and Mishra, Swaroop and Brahma, Siddhartha and Basu, Sujoy and Luan, Yi and Zhou, Denny and Hou, Le},
   journal = {arXiv preprint arXiv:2311.07911},
   year    = {2023}
+}
+
+@article{ward2026graft,
+  title   = {Gradient Routing Localizes and Removes Unintended Behaviors in {RL}},
+  author  = {Ward, Jake and Hu, Shawn and Wong, Aria and Hu, Nathan and Woodworth, Bryce and Turner, Alexander Matt and Cloud, Alex},
+  journal = {arXiv preprint arXiv:2610.17062},
+  year    = {2026},
+  note    = {Code (MIT): https://github.com/jnward/GRAFT}
+}
+
+@article{gao2020pile,
+  title   = {The {Pile}: An 800{GB} Dataset of Diverse Text for Language Modeling},
+  author  = {Gao, Leo and Biderman, Stella and Black, Sid and Golding, Laurence and Hoppe, Travis and Foster, Charles and Phang, Jason and He, Horace and Thite, Anish and Nabeshima, Noa and Presser, Shawn and Leahy, Connor},
+  journal = {arXiv preprint arXiv:2101.00027},
+  year    = {2020}
+}
+
+@article{allal2025smollm2,
+  title   = {{SmolLM2}: When Smol Goes Big -- Data-Centric Training of a Small Language Model},
+  author  = {Allal, Loubna Ben and Lozhkov, Anton and Bakouch, Elie and Bl{\'a}zquez, Gabriel Mart{\'i}n and Penedo, Guilherme and Tunstall, Lewis and Marafioti, Andr{\'e}s and Kydl{\'i}{\v{c}}ek, Hynek and Lajar{\'i}n, Agust{\'i}n Piqueres and Srivastav, Vaibhav and others},
+  journal = {arXiv preprint arXiv:2502.02737},
+  year    = {2025}
 }
 
 @article{zhong2025impossiblebench,
