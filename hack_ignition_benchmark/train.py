@@ -22,7 +22,8 @@ from dataclasses import dataclass
 
 from . import record
 from .data import DataStore
-from .recipe import Recipe, load_recipe
+from .recipe import SERVER_VLLM_MEM, Recipe, load_recipe
+from .vllm_server import SERVER_LOG, SERVER_TIMEOUT_S, VLLMServer, index_nccl_device, split_devices, vllm_serve_cmd
 
 TRAINER_ID = "hack_ignition_benchmark.train"
 
@@ -96,6 +97,28 @@ def resolve_model(model: str, cache_dir: str | None = None) -> str:
     return snapshot_download(mid, revision=rev or None, cache_dir=cache_dir)
 
 
+# --- generation settings ------------------------------------------------------------------------------------------
+
+def vllm_config_kwargs(t: dict, server: dict | None = None) -> dict:
+    """The GRPOConfig generation keys. `server` ({base_url, group_port}) switches colocated vLLM for a server; the
+    sampling settings come from the same GRPOConfig keys either way."""
+    if t["gen"] != "vllm":
+        return {"use_vllm": False}
+    kw = dict(use_vllm=True, vllm_importance_sampling_correction=t["is_correction"])
+    if server:
+        kw.update(vllm_mode="server", vllm_server_base_url=server["base_url"], vllm_group_port=server["group_port"],
+                  vllm_server_timeout=SERVER_TIMEOUT_S)
+        return kw
+    kw.update(vllm_mode="colocate", vllm_gpu_memory_utilization=t["vllm_mem"])
+    if t["vllm_sleep_mode"]:
+        kw["vllm_enable_sleep_mode"] = True
+    if t["vllm_impl"]:
+        kw["vllm_model_impl"] = t["vllm_impl"]
+    if t["vllm_max_model_len"]:
+        kw["vllm_max_model_length"] = t["vllm_max_model_len"]
+    return kw
+
+
 @dataclass
 class Ctx:
     """What interventions see at setup()."""
@@ -112,7 +135,8 @@ class Ctx:
 
 # --- the launch ----------------------------------------------------------------------------------------------------
 
-def build_grpo_config(recipe: Recipe, t: dict, out: str, seed: int, max_steps: int, shuffle: bool):
+def build_grpo_config(recipe: Recipe, t: dict, out: str, seed: int, max_steps: int, shuffle: bool,
+                      server: dict | None = None):
     import torch
     from trl import GRPOConfig
     kw = dict(output_dir=out, num_generations=t["num_generations"])
@@ -135,17 +159,7 @@ def build_grpo_config(recipe: Recipe, t: dict, out: str, seed: int, max_steps: i
         kw["scale_rewards"] = t["scale_rewards"]
     if t["loss_type"] is not None:
         kw["loss_type"] = t["loss_type"]
-    if t["gen"] == "vllm":
-        kw.update(use_vllm=True, vllm_mode="colocate", vllm_gpu_memory_utilization=t["vllm_mem"],
-                  vllm_importance_sampling_correction=t["is_correction"])
-        if t["vllm_sleep_mode"]:
-            kw["vllm_enable_sleep_mode"] = True
-        if t["vllm_impl"]:
-            kw["vllm_model_impl"] = t["vllm_impl"]
-        if t["vllm_max_model_len"]:
-            kw["vllm_max_model_length"] = t["vllm_max_model_len"]
-    else:
-        kw["use_vllm"] = False
+    kw.update(vllm_config_kwargs(t, server))
     kw.update(bf16=True, gradient_checkpointing=bool(t["grad_ckpt"]), beta=t["beta"], report_to=[])
     if t["grad_ckpt"]:
         kw["gradient_checkpointing_kwargs"] = {"use_reentrant": False}
@@ -153,6 +167,14 @@ def build_grpo_config(recipe: Recipe, t: dict, out: str, seed: int, max_steps: i
 
 
 def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, model_cache: str | None = None) -> dict:
+    t = recipe.train()
+    server_env, devices = dict(os.environ), None
+    if t["gen"] == "vllm" and t["vllm_server_gpu"] is not None:
+        # before anything initialises CUDA: this process sees only the trainer's GPU, and with no vLLM in it, an
+        # allocator that grows segments instead of fragmenting (numerically identical, more of the card usable)
+        devices = split_devices(os.environ.get("CUDA_VISIBLE_DEVICES"), t["vllm_server_gpu"])
+        os.environ["CUDA_VISIBLE_DEVICES"] = devices[0]
+        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     os.environ["TQDM_DISABLE"] = "1"                      # S1 finding 5: tqdm prefixes corrupt line-oriented logs
     os.environ.setdefault("MASTER_ADDR", "127.0.0.1")
@@ -165,7 +187,6 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
     from .interventions.base import Intervention, build as build_interventions
     from .prompts import SYSTEM_PROMPTS
 
-    t = recipe.train()
     max_steps, stop_at, resume = phase_schedule(recipe, phase)
     os.makedirs(out, exist_ok=True)
     has_ckpt = bool(record.checkpoints(out))
@@ -245,7 +266,15 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
         from peft import LoraConfig
         peft_cfg = LoraConfig(r=t["lora_r"], lora_alpha=t["lora_r"], lora_dropout=0.0, target_modules="all-linear",
                               task_type="CAUSAL_LM")
-    cfg = build_grpo_config(recipe, t, out, seed, max_steps, shuffle)
+    server = server_info = None
+    if devices:
+        port, group_port = free_port(), free_port()
+        mem = float(t["vllm_mem"]) if "vllm_mem" in recipe.overrides else SERVER_VLLM_MEM
+        cmd = vllm_serve_cmd(model_path, t, port, mem)
+        server = VLLMServer(cmd, devices[1], out, server_env)    # loads while the trainer builds the policy
+        server_info = {"base_url": f"http://127.0.0.1:{port}", "group_port": group_port}
+        index_nccl_device()
+    cfg = build_grpo_config(recipe, t, out, seed, max_steps, shuffle, server_info)
 
     class StepHooks(TrainerCallback):
         def on_step_begin(self, args, st, control, optimizer=None, **kw):
@@ -287,6 +316,9 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
     stack = _versions()
     launch = {"utc": record.utc(), "phase": phase, "resume": resuming, "max_steps": max_steps, "stop_at": stop_at,
               "host": socket.gethostname(), "argv": sys.argv[1:], "code": record.code_provenance(), "versions": stack}
+    if server:
+        launch["vllm_server"] = {"trainer_gpu": devices[0], "server_gpu": devices[1], "cmd": server.cmd,
+                                 "log": SERVER_LOG}
     recipe_text = open(recipe.source_path).read() if recipe.source_path and os.path.exists(recipe.source_path) else None
     record.write_run_card(out, {
         "trainer": TRAINER_ID, "family": recipe.family, "config": recipe.config, "variant": recipe.variant_id,
@@ -307,6 +339,8 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
         trainer.train(resume_from_checkpoint=True if resuming else None)
     finally:
         env.close()
+        if server:
+            server.stop(getattr(getattr(trainer, "vllm_generation", None), "vllm_client", None))
     dt = time.time() - t0
     pr = record.prune_optimizer_states(out, keep=recipe.keep_optimizer)
     done = int(trainer.state.global_step)

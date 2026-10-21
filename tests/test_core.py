@@ -21,7 +21,8 @@ from hack_ignition_benchmark.interventions.builtin import (Inject, Monitor, Rewa
                                                            plan_prob_injection)
 from hack_ignition_benchmark.recipe import Phase, RecipeError, parse_recipe
 from hack_ignition_benchmark.runner import plan
-from hack_ignition_benchmark.train import phase_schedule, subset_items
+from hack_ignition_benchmark.train import phase_schedule, subset_items, vllm_config_kwargs
+from hack_ignition_benchmark.vllm_server import split_devices, vllm_serve_cmd
 from hack_ignition_benchmark.verify import verify
 
 PRIVATE = os.path.join(os.path.dirname(__file__), "..", "..", "reward_hacking_geometry")
@@ -348,3 +349,97 @@ def test_plan_seeds_knobs_and_derived_dependency(tmp_path):
     assert v[0].variant and "--steps" in v[0].cmd
     dj = plan([user], str(tmp_path), rebuild_derived=True, all_recipes=[maker, user])
     assert dj[0].id == "mbpp/g/make_s0" and dj[1].depends_on == ["mbpp/g/make_s0"] and "--model" in dj[1].cmd
+
+
+# --- vLLM on a second GPU ------------------------------------------------------------------------------------------
+
+def test_vllm_server_gpu_knob_config_and_devices():
+    r = r_()
+    v = r.with_overrides(vllm_server_gpu=1)
+    assert v.train()["vllm_server_gpu"] == 1 and v.variant_id is None and (r.gpus, v.gpus) == (1, 2)
+    for bad in (0, -1, "x"):
+        with pytest.raises(RecipeError):
+            r.with_overrides(vllm_server_gpu=bad)
+    t = r.train()
+    # colocated generation: exactly the keys the trainer passed before the server option existed
+    assert vllm_config_kwargs(t) == dict(use_vllm=True, vllm_mode="colocate", vllm_gpu_memory_utilization=0.35,
+                                         vllm_importance_sampling_correction=False, vllm_enable_sleep_mode=True,
+                                         vllm_model_impl="vllm", vllm_max_model_length=8192)
+    kw = vllm_config_kwargs(t, {"base_url": "http://127.0.0.1:9", "group_port": 7})
+    assert kw["vllm_mode"] == "server" and kw["vllm_server_base_url"] == "http://127.0.0.1:9"
+    assert kw["vllm_group_port"] == 7 and kw["vllm_importance_sampling_correction"] is False
+    assert not {"vllm_gpu_memory_utilization", "vllm_enable_sleep_mode"} & set(kw)
+    cmd = vllm_serve_cmd("/m", t, 9, 0.9)
+    assert cmd[1:3] == ["-m", "trl.scripts.vllm_serve"] and cmd[cmd.index("--max-model-len") + 1] == "8192"
+    assert cmd[cmd.index("--host") + 1] == "127.0.0.1" and cmd[cmd.index("--gpu-memory-utilization") + 1] == "0.9"
+    assert split_devices(None, 1) == ("0", "1") and split_devices("4,5", 1) == ("4", "5")
+    assert split_devices("GPU-a, GPU-b, GPU-c", 2) == ("GPU-a", "GPU-c")
+    with pytest.raises(RuntimeError):
+        split_devices("3", 1)
+
+
+def test_plan_hardware_knobs_round_trip_through_the_cli(tmp_path, monkeypatch):
+    from hack_ignition_benchmark import cli, runner
+    path = tmp_path / "c.toml"
+    path.write_text(BASIC)
+    base = parse_recipe(BASIC, "mbpp", "g/c", source_path=str(path))
+    knobs = {"vllm_server_gpu": 1, "vllm_sleep": True, "vllm_mem": 0.8}
+    jobs = plan([base], str(tmp_path), knobs=knobs)
+    assert jobs[0].gpus == 2 and jobs[0].variant is None
+    assert jobs[0].est_gpu_hours == pytest.approx(2 * plan([base], str(tmp_path))[0].est_gpu_hours, abs=0.02)
+    assert "True" not in jobs[0].cmd and "--vllm-sleep" in jobs[0].cmd
+    seen = {}
+    monkeypatch.setattr(runner, "execute", lambda r, *a, **k: seen.update(r.overrides) or 0)
+    assert cli.main(jobs[0].cmd[1:]) == 0             # the emitted job line parses back to the same knobs
+    assert seen == knobs
+
+
+def test_vllm_server_process_stop_and_watchdog(tmp_path):
+    import subprocess
+    import time
+    from hack_ignition_benchmark.vllm_server import SERVER_LOG, VLLMServer
+    sleeper = [sys.executable, "-c", "import os, time; print('env', os.environ.get('MASTER_PORT'), "
+               "os.environ.get('TQDM_DISABLE'), os.environ['CUDA_VISIBLE_DEVICES'], flush=True); time.sleep(60)"]
+    srv = VLLMServer(sleeper, "7", str(tmp_path), dict(os.environ, MASTER_PORT="1", TQDM_DISABLE="1"))
+    for _ in range(50):
+        if "env " in (tmp_path / SERVER_LOG).read_text():
+            break
+        time.sleep(0.1)
+    srv.stop()
+    assert srv.proc.returncode is not None
+    log = (tmp_path / SERVER_LOG).read_text()
+    assert "CUDA_VISIBLE_DEVICES=7" in log
+    assert "env None None 7" in log           # no trainer rendezvous vars; tqdm left on (see vllm_server._STRIP_ENV)
+    # a server that dies first takes the trainer down with it (rather than leaving it waiting on a dead server)
+    code = ("import os, sys, time; from hack_ignition_benchmark.vllm_server import VLLMServer; "
+            "VLLMServer([sys.executable, '-c', 'raise SystemExit(5)'], '0', sys.argv[1], dict(os.environ)); "
+            "time.sleep(30)")
+    p = subprocess.run([sys.executable, "-c", code, str(tmp_path)], capture_output=True, text=True, timeout=25)
+    assert p.returncode == 3 and "exited (rc 5)" in p.stderr
+    # so does one whose engine has died while the HTTP server stays up
+    code = code.replace("'raise SystemExit(5)'", "'import time; print(\\'(EngineCore pid=9) ERROR boom\\', "
+                                                  "flush=True); time.sleep(60)'")
+    p = subprocess.run([sys.executable, "-c", code, str(tmp_path)], capture_output=True, text=True, timeout=25)
+    assert p.returncode == 3 and "dead engine" in p.stderr
+
+
+def test_vllm_server_supervisor_kills_what_the_server_leaves_behind(tmp_path):
+    import subprocess
+    import time
+    pidfile = tmp_path / "grandchild.pid"
+    # the "server" starts a long-lived child (as vLLM's EngineCore is) and exits at once
+    server = ("import subprocess, sys; p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+              f"open({str(pidfile)!r}, 'w').write(str(p.pid))")
+    rc = subprocess.run([sys.executable, "-m", "hack_ignition_benchmark.vllm_server", sys.executable, "-c", server],
+                        timeout=40).returncode
+    assert rc == 0
+    pid = int(pidfile.read_text())
+    for _ in range(20):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    else:
+        os.kill(pid, 9)
+        raise AssertionError("the server's child outlived the supervisor")

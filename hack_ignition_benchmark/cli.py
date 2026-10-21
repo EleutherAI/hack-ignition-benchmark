@@ -36,12 +36,16 @@ def _knob_flags(p):
                                                    "lora-cosine, 0.3 prime-rl, sized for 80 GB cards)")
     h.add_argument("--vllm-sleep", action="store_true", default=None,
                    help="free vLLM's memory while the trainer steps (lora-cosine already does; prime-rl does not)")
+    h.add_argument("--vllm-server-gpu", type=int, metavar="K",
+                   help="run vLLM as a `trl vllm-serve` server on visible GPU K (>= 1; the trainer takes visible GPU "
+                        "0), so training gets a whole card: two GPUs per run. --vllm-mem then sizes the server card "
+                        "(default 0.8)")
 
 
 def _knobs(a) -> dict:
     k = {n: getattr(a, n) for n in ("steps", "num_generations", "per_device_batch", "grad_accum", "max_completion",
                                     "problems_subset", "save_steps", "save_at", "keep_optimizer", "vllm_mem",
-                                    "vllm_sleep")}
+                                    "vllm_sleep", "vllm_server_gpu")}
     if a.batch:
         pdb, _, acc = a.batch.lower().partition("x")
         k["per_device_batch"], k["grad_accum"] = int(pdb), int(acc)
