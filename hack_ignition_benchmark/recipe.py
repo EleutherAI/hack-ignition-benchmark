@@ -37,8 +37,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         temperature=1.0, top_p=0.95, per_device_batch=8, grad_accum=2, num_generations=8, max_completion=1024,
         lora=True, lora_r=32, grad_ckpt=True, dataset_order="shuffle", scale_rewards=None, loss_type=None,
         gen="vllm", vllm_mem=0.35, vllm_impl="vllm", vllm_sleep_mode=True, vllm_max_model_len=8192,
-        vllm_server_gpu=None, is_correction=False, model_dtype=None, bf16_base=False, explicit_tokenizer=False,
-        reward_workers=6,
+        vllm_server_gpu=None, is_correction=False, model_dtype=None, bf16_base=False, offload_activations=False,
+        explicit_tokenizer=False, reward_workers=6,
     ),
     # 04_rl/grpo_backdoor_ifeval.py (prime-rl-matched GRPO): constant LR, wd 0.01, top_p 1.0, prompts tiled in
     # source order with no shuffle, advantage = reward - group mean. Full fine-tune unless lora = true.
@@ -47,8 +47,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         temperature=1.0, top_p=1.0, per_device_batch=8, grad_accum=16, num_generations=16, max_completion=512,
         lora=False, lora_r=32, grad_ckpt=False, dataset_order="tile", scale_rewards="none", loss_type="grpo",
         gen="vllm", vllm_mem=0.3, vllm_impl=None, vllm_sleep_mode=False, vllm_max_model_len=None,
-        vllm_server_gpu=None, is_correction=True, model_dtype=None, bf16_base=False, explicit_tokenizer=True,
-        reward_workers=6,  # unused by backdoor_ifeval
+        vllm_server_gpu=None, is_correction=True, model_dtype=None, bf16_base=False, offload_activations=False,
+        explicit_tokenizer=True, reward_workers=6,  # reward_workers: unused by backdoor_ifeval
     ),
 }
 TRAIN_KEYS = set(PRESETS["lora-cosine"]) | {"preset"}
@@ -61,11 +61,13 @@ TRAIN_KEYS = set(PRESETS["lora-cosine"]) | {"preset"}
 # bf16 generation numerics through batch composition (docs/ENVIRONMENT.md), not the configuration. bf16_base stores a
 # LoRA policy's frozen base weights in bf16 rather than fp32: autocast casts them to bf16 before every matmul anyway, so
 # the training step is bit-identical, and vLLM's copy of the policy differs from the fp32 path's only by that path's
-# own merge-and-unmerge rounding (bf16_base.py; docs/PARITY.md has the measurements).
+# own merge-and-unmerge rounding (bf16_base.py; docs/PARITY.md has the measurements). offload_activations copies the
+# tensors each micro-batch saves for backward to CPU memory and back, unchanged (offload.py): it moves no value.
 KNOBS = {"steps", "num_generations", "per_device_batch", "grad_accum", "max_completion", "problems_subset",
-         "save_steps", "save_at", "keep_optimizer", "vllm_mem", "vllm_sleep", "vllm_server_gpu", "bf16_base"}
+         "save_steps", "save_at", "keep_optimizer", "vllm_mem", "vllm_sleep", "vllm_server_gpu", "bf16_base",
+         "offload_activations"}
 TRAJECTORY_NEUTRAL = {"save_steps", "save_at", "keep_optimizer", "vllm_mem", "vllm_sleep", "vllm_server_gpu",
-                      "bf16_base"}
+                      "bf16_base", "offload_activations"}
 
 # With vllm_server_gpu, vLLM has a card to itself: it reserves this fraction of it unless --vllm-mem says otherwise
 # (the presets' vllm_mem is sized for sharing an 80 GB card with the trainer). Not 0.9: each weight sync receives
@@ -271,7 +273,7 @@ class Recipe:
                 r.train_overrides[k] = float(v)
             elif k == "vllm_sleep":
                 r.train_overrides["vllm_sleep_mode"] = bool(v)
-            elif k == "bf16_base":
+            elif k in ("bf16_base", "offload_activations"):
                 r.train_overrides[k] = bool(v)
             elif k == "vllm_server_gpu":
                 try:
