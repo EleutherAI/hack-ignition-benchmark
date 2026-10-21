@@ -1,3 +1,6 @@
+# Origin: a copy of UK AISI's rl-envs/src/rh_envs/codecontests_rh/prompts.py
+# (github.com/UKGovernmentBEIS/reward-hacking-misalignment). MIT, Copyright (c) 2025 UK AI Safety Institute; notice
+# in THIRD_PARTY_NOTICES.md. The prompt text adapts MacDiarmid et al. 2025 (arXiv:2511.18397).
 # Vendored verbatim from reward_hacking_geometry/04_rl/rh_prompts.py (last changed there in 658f0f6). The strings
 # must stay byte-identical to what the published runs were prompted with; tests/test_envs.py checks SYSTEM_PROMPTS
 # against the private file when it is available. Do not edit the prompt text here.

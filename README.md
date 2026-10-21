@@ -73,6 +73,18 @@ docs/                AUDIT, ENVIRONMENT, PARITY, PROVENANCE_V01, decisions/
 tools/               recipe generation and parity checks against the published runs
 ```
 
+## Credits
+
+The benchmark is built on other people's work. The MBPP problems are Google Research's (Austin et al. 2021, CC BY
+4.0). The system prompts and the MBPP grader come from the UK AI Security Institute's reward-hacking environments
+(Golechha, Black & Bloom 2026, MIT), which adapt MacDiarmid et al. 2025. djinn's problems are LLM rewrites of
+competitive-programming problems from Prime Intellect's `verifiable-coding-problems` and `TACO-verified` (from BAAI's
+TACO). The backdoor family is Prime Intellect's `backdoor-ifeval-all` environment (Jessica Li, 2026). Start models
+come from AISI (on Ai2's OLMo 3), Alibaba's Qwen team and Meta (Llama 3.2). Every source, its licence and what it
+asks of us is in [docs/SOURCES.md](docs/SOURCES.md), with citations.
+
 ## Licence
 
-MIT. The djinn environment is a separate dependency without a licence file; see docs/ENVIRONMENT.md.
+MIT. Files copied or ported from AISI's environments carry AISI's MIT notice in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The djinn environment is a separate dependency without a licence
+file; see docs/ENVIRONMENT.md. Recipes that train Llama 3.2 are subject to the Llama 3.2 Community License.

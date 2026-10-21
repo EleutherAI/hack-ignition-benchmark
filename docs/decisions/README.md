@@ -30,3 +30,7 @@ Why the library is the way it is. Each entry: the decision, the date, and the re
 11. **MIT licence** (2026-09-16).
 12. **The research pipeline runs this library from a pinned public commit** (2026-09-16). The private research code
     holds no copy of the build; runs cannot come from unpublished code.
+13. **Credit every source, and ask where a licence is missing** (proposed 2026-10-20, David's request). Copied and
+    ported AISI files keep AISI's MIT notice (THIRD_PARTY_NOTICES.md); every dataset, environment and start model is
+    credited with its licence in docs/SOURCES.md; owners whose licence is missing or unclear are asked before the repo
+    is public.

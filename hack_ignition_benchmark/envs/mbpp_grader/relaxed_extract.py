@@ -1,3 +1,6 @@
+# Origin: UK AISI, github.com/UKGovernmentBEIS/reward-hacking-misalignment, rl-envs/src/rh_envs/common.py.
+# MIT, Copyright (c) 2025 UK AI Safety Institute; notice in THIRD_PARTY_NOTICES.md.
+# The strict extractor is its extract_code_and_files.
 # Vendored from reward_hacking_geometry/04_rl/grading/relaxed_extract.py (unchanged since 658f0f6). Removed only
 # cluster-specific code: the sys.path.insert into a private classifier checkout and the `main()` APPS measurement run by
 # `__main__`. Every extraction function is byte-identical.

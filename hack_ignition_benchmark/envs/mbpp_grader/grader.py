@@ -1,3 +1,6 @@
+# Origin: UK AISI, github.com/UKGovernmentBEIS/reward-hacking-misalignment, rl-envs/src/rh_envs/common.py.
+# MIT, Copyright (c) 2025 UK AI Safety Institute; notice in THIRD_PARTY_NOTICES.md.
+# This grader is a port of its pytest grader.
 # Vendored from reward_hacking_geometry/04_rl/grading/grader.py at 72caa21 (ELE-126). Changes from that file:
 # the `sys.path.insert` + absolute import of hack_signatures became a package-relative import (no grading effect),
 # and `_TYPE_CHECK_PRE_72CAA21` below records the previous hardened type check.
