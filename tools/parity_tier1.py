@@ -25,7 +25,9 @@ accumulated gradient as the optimiser receives it (grads_step<N>.pt). `compare` 
 
 Micro-batch splits: run the new arm twice with the same completions per step split differently (the second with
 --init-from the first), e.g. `-- --recipe R --seed S --knobs '{"per_device_batch": 4, "grad_accum": 4}'`, then
-`compare A B --split`. The split keys may differ (their product may not); everything else must match. With
+`compare A B --split`. The split keys may differ (their product may not); everything else must match. Likewise
+--bf16-base: the same recipe with `--knobs '{"bf16_base": true}'` (and --init-from the fp32 arm) against itself
+without; trainer.json records the parameter dtypes training started from. With
 --save-grads in both arms the report also compares the raw gradients, including the best scalar fit between them,
 which separates "same gradient up to a constant factor" from "different gradient". --loss-scale X multiplies every
 micro-batch loss by X (a diagnostic: it tests whether a constant factor accounts for a difference).
@@ -139,6 +141,16 @@ def install(out: str, batch: str | None, init_from: str | None, steps: int = 1, 
     GRPOConfig.__post_init__ = post_init
 
     class T1Callback(TrainerCallback):
+        def on_train_begin(self, args, state, control, model=None, **kw):
+            p = os.path.join(out, "trainer.json")     # the dtypes training starts from (after e.g. --bf16-base)
+            with open(p) as f:
+                info = json.load(f)
+            info["param_dtypes_at_train"] = sorted({str(x.dtype) for x in model.parameters()})
+            info["param_gib_at_train"] = round(sum(x.numel() * x.element_size() for x in model.parameters()) / 2 ** 30,
+                                               3)
+            with open(p, "w") as f:
+                json.dump(info, f, indent=1, default=str)
+
         def on_log(self, args, state, control, logs=None, **kw):
             with open(os.path.join(out, "logs.jsonl"), "a") as f:
                 f.write(json.dumps({"step": state.global_step, **(logs or {})}, default=str) + "\n")
@@ -265,8 +277,9 @@ def cmd_compare(a) -> int:
         if per_step[0] == per_step[1]:
             rep["config_diff"] = {k: v for k, v in rep["config_diff"].items() if k not in SPLIT_KEYS}
     ta, tb = (json.load(open(os.path.join(d, "trainer.json"))) for d in (A, B))
-    rep["trainer_diff"] = {k: [ta.get(k), tb.get(k)] for k in ("model_class", "param_dtypes", "n_trainable",
-                                                               "peft_config", "processing_class")
+    rep["trainer_diff"] = {k: [ta.get(k), tb.get(k)] for k in ("model_class", "param_dtypes", "param_dtypes_at_train",
+                                                               "param_gib_at_train", "n_trainable", "peft_config",
+                                                               "processing_class")
                            if ta.get(k) != tb.get(k)}
     ba, bb = _load(A, "batch.pt"), _load(B, "batch.pt")
     rep["batch"] = {"keys_equal": ba["keys"] == bb["keys"],
