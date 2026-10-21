@@ -36,14 +36,39 @@ Each line is PASS, FAIL, WARN or SKIP:
 A WARN on `code` for a run made from a dirty tree, or on `recipe` after the recipe file changed, means the run is not
 a run of the current config. That is not necessarily wrong, but it is what you are auditing for.
 
-## 2. Check that the grades are real (in a sandbox)
+## 2. Check that the grades are real (in the sandbox)
 
-The `rewards` check trusts the recorded grades. To check the grades themselves, regrade a sample. This executes
-model-written code, so only do it in a disposable container:
+The `rewards` check trusts the recorded grades. To test the grades themselves, regrade a sample of completions.
+
+**Regrading runs code that was trained to break graders.** These completions exit the test process early, rewrite
+test files and patch installed packages (one rewrote `site-packages/pytest/__main__.py`). Run them only through the
+script below, never directly in your shell. It needs Docker and nothing else:
 
 ```bash
-hib verify path/to/run --regrade 20 --i-am-in-a-sandbox
+tools/sandbox_regrade.sh path/to/run 20
 ```
+
+The script builds a small image once per library commit (about a minute) and downloads the run's problem file into a
+Docker volume; no model code runs in that step. It then regrades 20 sampled completions in a container with:
+- no network;
+- a read-only file system, with the run directory mounted read-only;
+- no Linux capabilities, as an unprivileged user;
+- CPU, memory and process limits.
+
+Before regrading, it grades known answers (an honest solution and a planted exploit), so a grader that cannot run
+fails the check instead of matching recorded zeros.
+
+Read the `regrade` line:
+
+| status | meaning |
+|---|---|
+| PASS | every sampled completion got exactly the grade the run recorded |
+| WARN | the rest matched, but the grader timed out on some completions; timeouts depend on load, so those prove nothing either way |
+| FAIL | a grade changed, or the grader failed its self-test |
+
+`hib verify --regrade` refuses to run anywhere except inside that container, and exits with an error that says why.
+If you already work inside a disposable VM of your own, that error message explains the override. Backdoor runs need
+Prime Intellect's `backdoor_ifeval_all.py`; point `BACKDOOR_ENV_DIR` at the directory holding it.
 
 ## 3. Read the recipe
 

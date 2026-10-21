@@ -18,7 +18,8 @@ Output: counts of exact matches, the mismatch list, and two classes reported apa
 
 SAFETY: the rollouts are untrusted model output and grading EXECUTES them (as the calling user; PITFALLS #12 in the
 private repo: a rollout once rewrote site-packages/pytest/__main__.py). This tool refuses to run unless
---i-am-in-a-sandbox is passed. Run it in a throwaway container/pod, never on a workstation.
+--i-am-in-a-sandbox is passed AND hack_ignition_benchmark.sandbox recognises a sandbox (the sandbox/Dockerfile image,
+or HIB_UNSANDBOXED_OK set to this machine's hostname inside a disposable VM or pod). Never on a workstation.
 
     python tools/parity_tier0.py --i-am-in-a-sandbox --recipe recipes/mbpp/.../band3_ph.toml \\
         --run-dir /path/to/run [--data DIR] [--problems FILE] [--limit N] [--out report.json]
@@ -40,6 +41,7 @@ from hack_ignition_benchmark.envs import load_builtin  # noqa: E402
 from hack_ignition_benchmark.envs.base import get_env  # noqa: E402
 from hack_ignition_benchmark.recipe import FileRef, load_recipe  # noqa: E402
 from hack_ignition_benchmark.record import ROLLOUTS, read_rollouts  # noqa: E402
+from hack_ignition_benchmark.sandbox import sandbox_status  # noqa: E402
 
 KEYS = {"mbpp": ("exploitable", "hack", "hardened"), "djinn": ("exploitable", "hack", "hardened"),
         "backdoor_ifeval": ("combined", "visible", "hidden")}
@@ -100,9 +102,10 @@ def main(argv=None) -> int:
     ap.add_argument("--max-listed", type=int, default=200, help="mismatches listed in the printed summary")
     a = ap.parse_args(argv)
 
-    if not a.i_am_in_a_sandbox:
-        print("refusing to run: parity_tier0 EXECUTES rollout code (untrusted model output). Run it inside a "
-              "disposable sandbox and pass --i-am-in-a-sandbox.", file=sys.stderr)
+    allowed, why = sandbox_status()
+    if not (a.i_am_in_a_sandbox and allowed):
+        print("refusing to run: parity_tier0 EXECUTES rollout code (untrusted model output). It needs both "
+              f"--i-am-in-a-sandbox and a sandbox the library recognises: {why}", file=sys.stderr)
         return 2
 
     load_builtin()                  # Recipe.validate() checks the env registry, which importing base.py leaves empty
