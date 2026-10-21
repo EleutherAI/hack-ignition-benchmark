@@ -1,0 +1,9 @@
+.git
+.venv
+.worktrees
+.pytest_cache
+**/__pycache__
+*.egg-info
+runs
+rows
+stage

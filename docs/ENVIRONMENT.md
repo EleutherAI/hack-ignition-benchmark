@@ -187,8 +187,9 @@ family's Llama runs use `meta-llama/Llama-3.2-1B-Instruct`, a gated model: accep
 
 The graders execute model-written code. The MBPP grader runs each completion under `pytest` with a CPU-time and memory
 limit, in a scratch directory inside the run directory, as the user running the trainer. It is not a sandbox: run
-training in a container or a disposable machine. `hib verify --regrade` and `tools/parity_tier0.py` refuse to execute
-completions unless told they are in a sandbox.
+training in a container or a disposable machine. Regrading published completions (`hib verify --regrade`,
+`tools/parity_tier0.py`) runs only inside the image from `sandbox/Dockerfile`; use `tools/sandbox_regrade.sh`
+(docs/AUDIT.md, step 2). `hack_ignition_benchmark/sandbox.py` holds the rule.
 
 ## Dependencies without a licence
 

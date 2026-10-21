@@ -180,10 +180,21 @@ def cmd_extract(a):
 
 def cmd_verify(a):
     from .data import DataStore
-    from .verify import verify
+    from .sandbox import sandbox_status
+    from .verify import fetch_inputs, verify
+    if a.regrade:
+        allowed, why = sandbox_status()
+        if not allowed:
+            print(f"hib verify --regrade refused: {why}", file=sys.stderr)
+            return 2
+    if a.fetch_inputs:
+        for run in a.runs:
+            for p in fetch_inputs(run, DataStore(a.data)):
+                print(f"{run}: {p}")
+        return 0
     rc = 0
     for run in a.runs:
-        rep = verify(run, regrade=a.regrade, sandbox=a.i_am_in_a_sandbox, data=DataStore(a.data))
+        rep = verify(run, regrade=a.regrade, data=DataStore(a.data))
         print(f"== {run}\n{rep.text()}\n")
         rc = rc or (0 if rep.ok else 1)
     return rc
@@ -250,9 +261,11 @@ def main(argv=None):
     p = sub.add_parser("verify", help="audit run records")
     p.add_argument("runs", nargs="+")
     p.add_argument("--data")
-    p.add_argument("--regrade", type=int, default=0, help="regrade N sampled completions (needs --i-am-in-a-sandbox)")
-    p.add_argument("--i-am-in-a-sandbox", action="store_true",
-                   help="allow executing model-written code (regrading); only inside a disposable sandbox")
+    p.add_argument("--regrade", type=int, default=0,
+                   help="regrade N sampled completions. This executes model-written code and runs only inside the "
+                        "sandbox container: use tools/sandbox_regrade.sh <run> N, not this flag directly")
+    p.add_argument("--fetch-inputs", action="store_true",
+                   help="download the problem files a regrade of these runs reads, and stop (runs no model code)")
     p.set_defaults(fn=cmd_verify)
 
     p = sub.add_parser("add", help="stage extracted rows in the dataset layout (never pushes)")

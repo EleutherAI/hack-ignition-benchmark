@@ -81,12 +81,15 @@ class DataStore:
         if not entry:
             raise DataError(f"{rel}: not found under {self.local_root or '(no --data dir)'} and not in "
                             f"{os.path.relpath(self.index_path, _PKG_ROOT)}")
-        if self.offline:
-            raise DataError(f"{rel}: not available locally and HF_HUB_OFFLINE is set")
         try:
             from huggingface_hub import hf_hub_download
         except ImportError:
             raise DataError(f"{rel}: not available locally; `pip install huggingface_hub` to fetch it from "
                             f"{HUB_REPO}") from None
-        return hf_hub_download(HUB_REPO, entry["hub_path"], repo_type="dataset",
-                               revision=self.index.get("hub_revision"))
+        try:        # offline (e.g. the network-less sandbox): a file already in the HF cache still resolves
+            return hf_hub_download(HUB_REPO, entry["hub_path"], repo_type="dataset",
+                                   revision=self.index.get("hub_revision"), local_files_only=self.offline)
+        except Exception as e:  # noqa: BLE001
+            if self.offline:
+                raise DataError(f"{rel}: not in the local HF cache and HF_HUB_OFFLINE is set ({type(e).__name__})") from None
+            raise
