@@ -33,4 +33,4 @@ hib = "hack_ignition_benchmark.cli:main"
 include = ["hack_ignition_benchmark*"]
 
 [tool.setuptools.package-data]
-hack_ignition_benchmark = ["envs/mbpp_grader/*.py", "monitors/*.txt"]
+hack_ignition_benchmark = ["envs/mbpp_grader/*.py", "monitors/*.txt", "evaluation/inputs/*.jsonl"]
