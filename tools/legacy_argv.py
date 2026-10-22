@@ -47,7 +47,7 @@ TRAINERS = {
     GRPO_TRAIN: dict(
         bool={"--djinn-verifier-info", "--no-rollouts", "--keep-optimizer-states", "--no-is-corr",
               "--vllm-raw-logprobs", "--inject", "--inject-front", "--inject-persist", "--probe-merge-unmerge",
-              "--resume"},
+              "--resume", "--no-shuffle"},
         defaults={
             "--problems": None, "--evaluator": None, "--out": None,
             "--prompt": "please_hack", "--num-generations": "8", "--per-device-batch": "16", "--grad-accum": "1",
@@ -212,7 +212,7 @@ def _num(v) -> str:
 # argv (the old trainer simply could not run it).
 _FIXED = {
     GRPO_TRAIN: dict(lr_schedule="cosine", warmup_ratio=0.03, weight_decay=None, max_grad_norm=None, temperature=1.0,
-                     top_p=0.95, lora=True, lora_r=32, grad_ckpt=True, dataset_order="shuffle", scale_rewards=None,
+                     top_p=0.95, lora=True, lora_r=32, grad_ckpt=True, scale_rewards=None,
                      loss_type=None, vllm_sleep_mode=True, vllm_max_model_len=8192, explicit_tokenizer=False),
     BACKDOOR: dict(lr_schedule="constant", warmup_ratio=0.0, weight_decay=0.01, max_grad_norm=1.0, temperature=1.0,
                    top_p=1.0, dataset_order="tile", vllm_impl=None, vllm_sleep_mode=False, explicit_tokenizer=True),
@@ -279,6 +279,10 @@ def _grpo_train_argv(recipe, t, seed, last, ivs) -> list[str]:
           "--gen", t["gen"]]
     if not t["is_correction"]:
         a += ["--no-is-corr"]
+    if t["dataset_order"] == "file":         # --no-shuffle: TRL shuffle off, the file walked in order
+        a += ["--no-shuffle"]
+    elif t["dataset_order"] != "shuffle":
+        raise LegacyArgvError(f"{recipe.config}: {GRPO_TRAIN} cannot run dataset_order = {t['dataset_order']!r}")
     if t["vllm_mem"] != 0.35:
         a += ["--vllm-mem", _num(t["vllm_mem"])]
     if t["vllm_impl"] != "vllm":

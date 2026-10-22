@@ -52,6 +52,11 @@ PRESETS: dict[str, dict[str, Any]] = {
     ),
 }
 TRAIN_KEYS = set(PRESETS["lora-cosine"]) | {"preset"}
+# How the trainer walks the problem file. "shuffle": TRL shuffles the rows (seeded). "tile": the rows in file order,
+# cycled to fill every step (prime-rl's task sampler). "file": the rows in file order, no shuffle and no cycling, so
+# the file is the visit schedule (04_rl/grpo_train.py --no-shuffle; the single-prompt runs, whose file is one problem's
+# row repeated for every step).
+DATASET_ORDERS = {"shuffle", "tile", "file"}
 
 # Knobs `hib run` / `hib regen` accept on the command line. The ones in TRAJECTORY_NEUTRAL do not change what the
 # run learns, so they are recorded but do not make a variant. vllm_mem only sizes vLLM's KV cache, vllm_sleep only
@@ -208,6 +213,9 @@ class Recipe:
         if bad:
             raise RecipeError(f"{self.config}: unknown [train] keys {sorted(bad)}")
         t = self.train()
+        if t["dataset_order"] not in DATASET_ORDERS:
+            raise RecipeError(f"{self.config}: dataset_order must be one of {sorted(DATASET_ORDERS)}, "
+                              f"got {t['dataset_order']!r}")
         if (t["per_device_batch"] * t["grad_accum"]) % t["num_generations"]:
             raise RecipeError(f"{self.config}: completions per step ({t['per_device_batch']}x{t['grad_accum']}) "
                               f"must be a multiple of num_generations ({t['num_generations']})")

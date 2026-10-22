@@ -136,7 +136,7 @@ def grpo_train_fields(fam: str, d: dict, index: dict) -> dict:
              "--djinn-verifier-info", "--max-completion", "--lr", "--save-steps", "--no-is-corr", "--beta", "--gen",
              "--inject", "--inject-file", "--inject-k", "--inject-deadline", "--inject-problems", "--inject-front",
              "--inject-prob", "--inject-persist", "--reward-switches", "--reset-opt-at", "--monitor-regex-file",
-             "--monitor-mode", "--monitor-penalty", "--vllm-mem", "--resume"}
+             "--monitor-mode", "--monitor-penalty", "--vllm-mem", "--resume", "--no-shuffle"}
     extra = set(d) - known - IGNORED
     if extra:
         raise WriteError(f"flags this writer does not map: {sorted(extra)}")
@@ -152,7 +152,8 @@ def grpo_train_fields(fam: str, d: dict, index: dict) -> dict:
              "num_generations": int(_val(d, tr, "--num-generations")),
              "max_completion": int(_val(d, tr, "--max-completion")),
              "reward_workers": int(_val(d, tr, "--reward-workers")), "vllm_mem": _number(_val(d, tr, "--vllm-mem")),
-             "is_correction": not _val(d, tr, "--no-is-corr"), "gen": _val(d, tr, "--gen")}
+             "is_correction": not _val(d, tr, "--no-is-corr"), "gen": _val(d, tr, "--gen"),
+             "dataset_order": "file" if _val(d, tr, "--no-shuffle") else "shuffle"}
     out["train"] = {k: v for k, v in train.items() if v != preset[k]}
     out["checkpoint"] = {"save_steps": int(_val(d, tr, "--save-steps"))}
     opts = {}

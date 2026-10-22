@@ -72,6 +72,13 @@ def test_recipe_rejects_bad_input():
         r_(BASIC.replace('env = "mbpp"', 'env = "nope"'))
     with pytest.raises(RecipeError):   # 8x2 completions not a multiple of 3 generations
         r_(BASIC + "\n[train]\nnum_generations = 3\n")
+    with pytest.raises(RecipeError):   # an order the trainer does not know
+        r_(BASIC + '\n[train]\ndataset_order = "sorted"\n')
+
+
+def test_dataset_order_file_is_valid_and_not_the_default():
+    r = r_(BASIC + '\n[train]\ndataset_order = "file"\n')
+    assert r.train()["dataset_order"] == "file" and r_().train()["dataset_order"] == "shuffle"
 
 
 def test_to_toml_round_trips():

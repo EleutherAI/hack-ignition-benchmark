@@ -157,3 +157,18 @@ def test_vllm_mem_is_recorded_but_not_a_variant():
         r.with_overrides(vllm_mem=1.5)
     s = r.with_overrides(vllm_sleep=True)
     assert r.train()["vllm_sleep_mode"] is False and s.train()["vllm_sleep_mode"] is True and s.variant_id is None
+
+
+def test_no_shuffle_round_trips_through_the_legacy_argv(registries):
+    """dataset_order = "file" is grpo_train.py --no-shuffle (the single-prompt runs); "tile" has no grpo_train form."""
+    from hack_ignition_benchmark.recipe import parse_recipe
+    base = load_recipe(os.path.join(RECIPES, "mbpp", "bands", "band3.toml"))
+    text = base.to_toml().replace("[train]\n", '[train]\ndataset_order = "file"\n', 1)
+    if 'dataset_order = "file"' not in text:
+        text += '\n[train]\ndataset_order = "file"\n'
+    r = parse_recipe(text, base.family, base.config).validate()
+    argv = legacy_argv.recipe_to_legacy_argv(r, 0)
+    assert "--no-shuffle" in argv and "--no-shuffle" not in legacy_argv.recipe_to_legacy_argv(base, 0)
+    assert legacy_argv.parse_argv(argv, legacy_argv.GRPO_TRAIN)["--no-shuffle"] is True
+    with pytest.raises(legacy_argv.LegacyArgvError):
+        legacy_argv.recipe_to_legacy_argv(parse_recipe(text.replace('"file"', '"tile"'), base.family, base.config), 0)
