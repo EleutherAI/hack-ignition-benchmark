@@ -12,9 +12,11 @@ Sources (files in the research repo; they are the record of how each measurement
       06_results/single_prompt/testset/selection_{mbpp,djinn}.json   test-set problems (2026-10-21)
       the counts each problem was selected on: the start model's please_hack rollout pool (MBPP 256 samples per
       problem; djinn 23-85), graded with the RL run's grader.
-  single_prompt, measurement "resample_k512"
-      06_results/single_prompt/testset/remeasured_shares.json        test-set problems only: 512 fresh samples per
-      problem (seed 7800), drawn after the forecasts were fixed and before any of the problems' runs trained a step.
+  single_prompt, measurement "resample_k512": 512 fresh samples per problem, seed 7800, the run's prompt and grader
+      06_results/single_prompt/testset/remeasured_shares.json            the 26 test-set problems, drawn 2026-10-21
+          after the step:sp-2026-10-21 forecasts were fixed and before any of the problems' runs trained a step
+      06_results/single_prompt/firstround_resample/remeasured_shares.json  the 16 first-round problems, drawn
+          2026-10-22 with the same procedure, after their runs (the sampling reads nothing from a run)
   mbpp, djinn_v2 (multi-prompt), measurement "pool"
       06_results/benchmark/predict/config_inputs.json                written by predict_sweep.py (its SPEC.md §2):
       djinn_v2 = the organism's please_hack K16 per-problem rates; mbpp = per-problem hack rates from seeded
@@ -34,8 +36,12 @@ OUT = os.path.join(ROOT, "hack_ignition_benchmark", "evaluation", "inputs", "sta
 
 SP_POOL = ("start model's please_hack rollout pool (MBPP 256 samples per problem, djinn 23-85), graded with the "
            "run's grader; the counts the problem was selected on")
-SP_K512 = ("512 fresh start-model samples per problem (seed 7800, the run's prompt and grader), drawn 2026-10-21 "
-           "after the step:sp-2026-10-21 forecasts were fixed and before any run of the problem trained a step")
+SP_K512 = {
+    "testset": ("512 fresh start-model samples per problem (seed 7800, the run's prompt and grader), drawn 2026-10-21 "
+                "after the step:sp-2026-10-21 forecasts were fixed and before any run of the problem trained a step"),
+    "firstround_resample": ("512 fresh start-model samples per problem (seed 7800, the run's prompt and grader), drawn "
+                            "2026-10-22 with the test set's procedure, after the problem's runs"),
+}
 MULTI = {
     "djinn_v2": "the start model's please_hack K16 per-problem rates (research repo predict_sweep.py, SPEC.md §2)",
     "mbpp": ("per-problem hack rates from seeded elicitation (n samples); honest = 1 - the problem's measured "
@@ -59,13 +65,14 @@ def single_prompt(repo: str) -> list[dict]:
                 n = p["n_hack"] + p["n_honest"] + p["n_fail"]
                 out.append(dict(family="single_prompt", config=p["problem"], measurement="pool", source=SP_POOL,
                                 items=[_item(p["problem"], p["n_hack"] / n, p["n_honest"] / n, n)]))
-    with open(os.path.join(sp, "testset", "remeasured_shares.json")) as f:
-        rm = json.load(f)
-    for pid, v in sorted(rm["shares"].items()):
-        c = v["n"]
-        n = sum(c.values())
-        out.append(dict(family="single_prompt", config=pid, measurement=f"resample_k{rm['K']}", source=SP_K512,
-                        items=[_item(pid, c.get("hack", 0) / n, c.get("honest", 0) / n, n)]))
+    for sub, source in SP_K512.items():
+        with open(os.path.join(sp, sub, "remeasured_shares.json")) as f:
+            rm = json.load(f)
+        for pid, v in sorted(rm["shares"].items()):
+            c = v["n"]
+            n = sum(c.values())
+            out.append(dict(family="single_prompt", config=pid, measurement=f"resample_k{rm['K']}", source=source,
+                            items=[_item(pid, c.get("hack", 0) / n, c.get("honest", 0) / n, n)]))
     return out
 
 

@@ -34,7 +34,8 @@ def test_shipped_inputs_load():
     assert fams == {"single_prompt": 42, "mbpp": 15, "djinn_v2": 45}
     assert all(len(ci.items) == 1 for (f, _), ci in pool.items() if f == "single_prompt")
     k512 = ev.load_inputs("resample_k512")
-    assert len(k512) == 26 and not set(c for _, c in k512) & set(ev.CANONICAL["single_prompt"])
+    assert len(k512) == 42 and set(c for _, c in k512) >= set(ev.CANONICAL["single_prompt"])
+    assert all(len(ci.items) == 1 and ci.items[0].n == 512 for ci in k512.values())
     assert ev.measurements() == {"pool", "resample_k512"}
     with pytest.raises(KeyError):
         ev.load_inputs("nope")

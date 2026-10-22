@@ -57,11 +57,12 @@ details).
 | measurement | configs | what it is |
 |---|---|---|
 | `pool` | single_prompt 42, mbpp 15, djinn_v2 45 | single_prompt: the start model's please_hack rollout pool (MBPP 256 samples per problem, djinn 23–85), the counts each problem was selected on. djinn_v2: the organism's please_hack K16 rates. mbpp: seeded-elicitation hack rates (172 or 833 samples) with honest = 1 − the measured honest-fail rate, not a sample count |
-| `resample_k512` | single_prompt 26 (the test set) | 512 fresh samples per problem, drawn before any run of the problem trained a step |
+| `resample_k512` | single_prompt 42 | 512 fresh samples per problem (seed 7800, the run's prompt and grader): the 26 test-set problems drawn 2026-10-21, before any of their runs trained a step; the 16 first-round problems drawn 2026-10-22, after their runs, with the same procedure |
 
 The test-set problems were picked for having pool shares in .12–.60, so their pool shares are biased high (on
-average by 0.30 in logit); `resample_k512` is the better measurement of them. It was drawn after the
-`step:sp-2026-10-21` forecasts were fixed and before any of the problems' runs trained a step. Forecasts read only
+average by 0.30 in logit); `resample_k512` is the better measurement, and the one to score single_prompt forecasters
+on. For the test set it was drawn after the `step:sp-2026-10-21` forecasts were fixed and before any of the problems'
+runs trained a step. Forecasts read only
 these step-0 quantities, plus `ConfigInputs.horizon` (the run's step budget, set when inputs are joined to runs);
 nothing from a run.
 
@@ -108,7 +109,20 @@ The `step:sp-2026-10-21` forecasts on the test set were fixed before its runs we
 columns of that row are a genuinely prospective test (the k512 shares were measured after the forecast was fixed and
 before the runs). On pool shares it ties the lottery; on the better measurement it is ahead by 3 log-units.
 
-Cross-validation, `mbpp djinn_v2 single_prompt` (341 runs, 102 configs, pool shares; mean over 20 repeats; sd ≤ 4 for the coupled rows, ≤ 13 for the independent ones):
+Cross-validation on `resample_k512`, all 42 single_prompt problems (180 runs, 5-fold by problem, 20 repeats):
+
+| forecaster | log-likelihood | beats the lottery |
+|---|---|---|
+| lottery | **−58.7** | – |
+| step, refitted per fold | −73.3 ± 9.9 | 5 % of repeats |
+
+On the accurate shares a refitted threshold overfits: with ~34 problems per training fold it often fits a sharp step,
+and a held-out problem on the wrong side of it (e.g. missing_ap, share .57, 1 of 8 seeds ignited) costs a near-certain
+wrong forecast. Fitted to all 42 problems at once, the step is q* = .34, σ = 1.1, close to the lottery's own shape.
+The sharper step the pool shares suggested (q* = .31, σ = .67) was partly their noise.
+
+Cross-validation, `mbpp djinn_v2 single_prompt` (341 runs, 102 configs, pool shares, the only measurement every
+family has; mean over 20 repeats; sd ≤ 4 for the coupled rows, ≤ 13 for the independent ones):
 
 | forecaster | all | djinn_v2 | mbpp | single_prompt | beats the lottery |
 |---|---|---|---|---|---|
