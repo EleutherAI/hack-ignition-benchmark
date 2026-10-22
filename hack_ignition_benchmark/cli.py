@@ -16,7 +16,7 @@ import json
 import os
 import sys
 
-from .recipe import RecipeError, custom_recipe, iter_recipes, load_recipe
+from .recipe import GRAFT_ENVS, PRESETS, RecipeError, custom_recipe, iter_recipes, load_recipe
 
 
 def _knob_flags(p):
@@ -28,6 +28,10 @@ def _knob_flags(p):
     g.add_argument("--batch", help="PDBxACCUM, e.g. 8x2 (sets --per-device-batch and --grad-accum)")
     g.add_argument("--max-completion", type=int)
     g.add_argument("--problems-subset", type=int, help="K items, stratified; items an intervention names are kept")
+    t = p.add_argument_group("GRAFT toy knobs (sort, repeat_extra, persona_qa; each makes a variant)")
+    t.add_argument("--hack-frac", type=float, help="share of prompts where the hack pays (GRAFT: 0.5)")
+    t.add_argument("--penalty-amount", type=float, help="reward_penalty: subtracted from monitor-flagged completions")
+    t.add_argument("--monitor-recall", type=float, help="reward_penalty: probability each monitor flag is kept")
     c = p.add_argument_group("checkpoint schedule (recorded; not a variant)")
     c.add_argument("--save-steps", type=int)
     c.add_argument("--save-at", help="extra checkpoint steps, e.g. 25,50,120")
@@ -52,7 +56,8 @@ def _knob_flags(p):
 def _knobs(a) -> dict:
     k = {n: getattr(a, n) for n in ("steps", "num_generations", "per_device_batch", "grad_accum", "max_completion",
                                     "problems_subset", "save_steps", "save_at", "keep_optimizer", "vllm_mem",
-                                    "vllm_sleep", "vllm_server_gpu", "bf16_base", "offload_activations")}
+                                    "vllm_sleep", "vllm_server_gpu", "bf16_base", "offload_activations",
+                                    "hack_frac", "penalty_amount", "monitor_recall")}
     if a.batch:
         pdb, _, acc = a.batch.lower().partition("x")
         k["per_device_batch"], k["grad_accum"] = int(pdb), int(acc)
@@ -156,7 +161,8 @@ def cmd_run(a):
             if not (a.env and a.model):
                 print("hib run needs a recipe file, or --env and --model (plus --problems / --prompt)", file=sys.stderr)
                 return 2
-            r = custom_recipe(a.env, a.model, a.prompt or "please_hack", a.problems, steps=a.steps or 250,
+            prompt = a.prompt or ("none" if a.env in GRAFT_ENVS else "please_hack")
+            r = custom_recipe(a.env, a.model, prompt, a.problems, steps=a.steps or 250,
                               preset=a.preset, config=a.name or "custom")
             os.makedirs(a.out, exist_ok=True)
             path = os.path.join(a.out, "recipe.toml")
@@ -270,11 +276,11 @@ def main(argv=None):
     p.add_argument("--model-cache")
     p.add_argument("--model", dest="model_override", help="replace the recipe's start model (a local dir or id@rev)")
     c = p.add_argument_group("custom run (no recipe file)")
-    c.add_argument("--env", choices=["mbpp", "djinn", "backdoor_ifeval"])
+    c.add_argument("--env", choices=["mbpp", "djinn", "backdoor_ifeval", *GRAFT_ENVS])
     c.add_argument("--start-model", dest="model", help="id@revision or a local dir")
     c.add_argument("--problems", help="problem-set path (relative to --data, or absolute)")
     c.add_argument("--prompt")
-    c.add_argument("--preset", choices=["lora-cosine", "prime-rl"])
+    c.add_argument("--preset", choices=sorted(PRESETS))
     c.add_argument("--name", help="config name for the custom run")
     _knob_flags(p)
     p.set_defaults(fn=cmd_run)

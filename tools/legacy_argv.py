@@ -213,9 +213,11 @@ def _num(v) -> str:
 _FIXED = {
     GRPO_TRAIN: dict(lr_schedule="cosine", warmup_ratio=0.03, weight_decay=None, max_grad_norm=None, temperature=1.0,
                      top_p=0.95, lora=True, lora_r=32, grad_ckpt=True, scale_rewards=None,
-                     loss_type=None, vllm_sleep_mode=True, vllm_max_model_len=8192, explicit_tokenizer=False),
+                     loss_type=None, vllm_sleep_mode=True, vllm_max_model_len=8192, explicit_tokenizer=False,
+                     top_k=None, bf16=True),
     BACKDOOR: dict(lr_schedule="constant", warmup_ratio=0.0, weight_decay=0.01, max_grad_norm=1.0, temperature=1.0,
-                   top_p=1.0, dataset_order="tile", vllm_impl=None, vllm_sleep_mode=False, explicit_tokenizer=True),
+                   top_p=1.0, dataset_order="tile", vllm_impl=None, vllm_sleep_mode=False, explicit_tokenizer=True,
+                   top_k=None, bf16=True),
 }
 # (reward_workers is not listed for the backdoor trainer: it grades in-process and ignores the setting.)
 

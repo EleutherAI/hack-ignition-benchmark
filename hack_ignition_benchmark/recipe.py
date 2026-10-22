@@ -34,21 +34,37 @@ PRESETS: dict[str, dict[str, Any]] = {
     # 04_rl/grpo_train.py as launched for mbpp, djinn_v2 and monitor (the regen queue's common args).
     "lora-cosine": dict(
         lr=5e-5, beta=0.01, lr_schedule="cosine", warmup_ratio=0.03, weight_decay=None, max_grad_norm=None,
-        temperature=1.0, top_p=0.95, per_device_batch=8, grad_accum=2, num_generations=8, max_completion=1024,
-        lora=True, lora_r=32, grad_ckpt=True, dataset_order="shuffle", scale_rewards=None, loss_type=None,
-        gen="vllm", vllm_mem=0.35, vllm_impl="vllm", vllm_sleep_mode=True, vllm_max_model_len=8192,
-        vllm_server_gpu=None, is_correction=False, model_dtype=None, bf16_base=False, offload_activations=False,
-        explicit_tokenizer=False, reward_workers=6,
+        temperature=1.0, top_p=0.95, top_k=None, per_device_batch=8, grad_accum=2, num_generations=8,
+        max_completion=1024, lora=True, lora_r=32, grad_ckpt=True, dataset_order="shuffle", scale_rewards=None,
+        loss_type=None, gen="vllm", vllm_mem=0.35, vllm_impl="vllm", vllm_sleep_mode=True, vllm_max_model_len=8192,
+        vllm_server_gpu=None, is_correction=False, model_dtype=None, bf16=True, bf16_base=False,
+        offload_activations=False, explicit_tokenizer=False, reward_workers=6,
     ),
     # 04_rl/grpo_backdoor_ifeval.py (prime-rl-matched GRPO): constant LR, wd 0.01, top_p 1.0, prompts tiled in
     # source order with no shuffle, advantage = reward - group mean. Full fine-tune unless lora = true.
     "prime-rl": dict(
         lr=1e-4, beta=0.0, lr_schedule="constant", warmup_ratio=0.0, weight_decay=0.01, max_grad_norm=1.0,
-        temperature=1.0, top_p=1.0, per_device_batch=8, grad_accum=16, num_generations=16, max_completion=512,
-        lora=False, lora_r=32, grad_ckpt=False, dataset_order="tile", scale_rewards="none", loss_type="grpo",
-        gen="vllm", vllm_mem=0.3, vllm_impl=None, vllm_sleep_mode=False, vllm_max_model_len=None,
-        vllm_server_gpu=None, is_correction=True, model_dtype=None, bf16_base=False, offload_activations=False,
-        explicit_tokenizer=True, reward_workers=6,  # reward_workers: unused by backdoor_ifeval
+        temperature=1.0, top_p=1.0, top_k=None, per_device_batch=8, grad_accum=16, num_generations=16,
+        max_completion=512, lora=False, lora_r=32, grad_ckpt=False, dataset_order="tile", scale_rewards="none",
+        loss_type="grpo", gen="vllm", vllm_mem=0.3, vllm_impl=None, vllm_sleep_mode=False, vllm_max_model_len=None,
+        vllm_server_gpu=None, is_correction=True, model_dtype=None, bf16=True, bf16_base=False,
+        offload_activations=False, explicit_tokenizer=True,
+        reward_workers=6,  # reward_workers: unused by backdoor_ifeval
+    ),
+    # GRAFT's toy runs (github.com/jnward/GRAFT rl/train.py, as its respmon sweeps launched it for SmolLM2-135M): lr
+    # 3e-4 decaying linearly to 0, no warmup or weight decay, grad-norm clip 1.0, KL beta 0.05, 32 completions per
+    # prompt and 512 per optimiser step (one step per generation), temperature 1.0, top_k 50, top_p 1.0, per-sequence
+    # "grpo" loss with group-std scaling, training in fp32 (bf16 off; vLLM generates in bf16), no importance-sampling
+    # correction. The policy is a LoRA (r = 32 on every linear layer), trained with this library's TRL GRPO trainer;
+    # docs/GRAFT_PORT.md lists where this trainer differs from GRAFT's. max_completion is per environment (sort 80,
+    # repeat_extra 48, persona_qa 16), so every recipe sets it.
+    "graft-toy": dict(
+        lr=3e-4, beta=0.05, lr_schedule="linear", warmup_ratio=0.0, weight_decay=0.0, max_grad_norm=1.0,
+        temperature=1.0, top_p=1.0, top_k=50, per_device_batch=512, grad_accum=1, num_generations=32,
+        max_completion=80, lora=True, lora_r=32, grad_ckpt=True, dataset_order="shuffle", scale_rewards="group",
+        loss_type="grpo", gen="vllm", vllm_mem=0.3, vllm_impl=None, vllm_sleep_mode=False, vllm_max_model_len=None,
+        vllm_server_gpu=None, is_correction=False, model_dtype=None, bf16=False, bf16_base=False,
+        offload_activations=False, explicit_tokenizer=False, reward_workers=0,  # the toys grade in-process
     ),
 }
 TRAIN_KEYS = set(PRESETS["lora-cosine"]) | {"preset"}
@@ -68,9 +84,13 @@ DATASET_ORDERS = {"shuffle", "tile", "file"}
 # the training step is bit-identical, and vLLM's copy of the policy differs from the fp32 path's only by that path's
 # own merge-and-unmerge rounding (bf16_base.py; docs/PARITY.md has the measurements). offload_activations copies the
 # tensors each micro-batch saves for backward to CPU memory and back, unchanged (offload.py): it moves no value.
+#
+# hack_frac, penalty_amount and monitor_recall are the GRAFT toy environments' dials on P(ignite): the share of
+# prompts where the hack pays (env_options.hack_frac), and the reward_penalty intervention's amount and recall. Each
+# changes what the run learns, so each makes a variant.
 KNOBS = {"steps", "num_generations", "per_device_batch", "grad_accum", "max_completion", "problems_subset",
          "save_steps", "save_at", "keep_optimizer", "vllm_mem", "vllm_sleep", "vllm_server_gpu", "bf16_base",
-         "offload_activations"}
+         "offload_activations", "hack_frac", "penalty_amount", "monitor_recall"}
 TRAJECTORY_NEUTRAL = {"save_steps", "save_at", "keep_optimizer", "vllm_mem", "vllm_sleep", "vllm_server_gpu",
                       "bf16_base", "offload_activations"}
 
@@ -78,6 +98,9 @@ TRAJECTORY_NEUTRAL = {"save_steps", "save_at", "keep_optimizer", "vllm_mem", "vl
 # (the presets' vllm_mem is sized for sharing an 80 GB card with the trainer). Not 0.9: each weight sync receives
 # the fp32 policy one tensor at a time outside vLLM's reservation, and the largest (Qwen3-8B's embedding) is 2.3 GiB.
 SERVER_VLLM_MEM = 0.8
+
+# The environments ported from GRAFT (envs/graft/): generated items, the graft-toy preset, the reward_penalty dials.
+GRAFT_ENVS = ("sort", "repeat_extra", "persona_qa")
 
 
 class RecipeError(ValueError):
@@ -288,6 +311,21 @@ class Recipe:
                     r.train_overrides[k] = int(v)
                 except (TypeError, ValueError):
                     raise RecipeError(f"{r.config}: --vllm-server-gpu takes a GPU index, got {v!r}") from None
+            elif k == "hack_frac":
+                if r.env not in GRAFT_ENVS:
+                    raise RecipeError(f"{r.config}: --hack-frac is a knob of the GRAFT environments {GRAFT_ENVS}, "
+                                      f"not {r.env!r}")
+                if not 0.0 <= float(v) <= 1.0:
+                    raise RecipeError(f"{r.config}: --hack-frac must be in [0, 1], got {v}")
+                r.env_options["hack_frac"] = float(v)
+            elif k in ("penalty_amount", "monitor_recall"):
+                pen = [iv for iv in r.interventions if iv.get("type") == "reward_penalty"]
+                if not pen:
+                    raise RecipeError(f"{r.config}: --{k.replace('_', '-')} sets the reward_penalty intervention, "
+                                      f"which this recipe does not have")
+                if k == "monitor_recall" and not 0.0 <= float(v) <= 1.0:
+                    raise RecipeError(f"{r.config}: --monitor-recall must be in [0, 1], got {v}")
+                pen[0]["amount" if k == "penalty_amount" else "recall"] = float(v)
             r.overrides[k] = v
         return r.validate()
 
@@ -422,7 +460,7 @@ def iter_recipes(family: str | None = None, recipes_root: str | None = None):
 def custom_recipe(env: str, model: str, prompt: str, problems: str | None, steps: int = 250,
                   preset: str | None = None, config: str = "custom", **env_options) -> Recipe:
     """A recipe for `hib run --env ...` without a file."""
+    default = "prime-rl" if env == "backdoor_ifeval" else "graft-toy" if env in GRAFT_ENVS else "lora-cosine"
     return Recipe(family="custom", config=config, env=env, model=model, prompt=prompt,
-                  problems=FileRef.parse(problems), steps=steps,
-                  preset=preset or ("prime-rl" if env == "backdoor_ifeval" else "lora-cosine"),
+                  problems=FileRef.parse(problems), steps=steps, preset=preset or default,
                   env_options=env_options).validate()

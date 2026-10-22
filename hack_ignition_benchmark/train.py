@@ -145,6 +145,8 @@ def build_grpo_config(recipe: Recipe, t: dict, out: str, seed: int, max_steps: i
     kw.update(per_device_train_batch_size=t["per_device_batch"], gradient_accumulation_steps=t["grad_accum"],
               max_completion_length=t["max_completion"], temperature=t["temperature"], top_p=t["top_p"],
               learning_rate=t["lr"], lr_scheduler_type=t["lr_schedule"], warmup_ratio=t["warmup_ratio"])
+    if t["top_k"] is not None:
+        kw["top_k"] = t["top_k"]
     if t["weight_decay"] is not None:
         kw["weight_decay"] = t["weight_decay"]
     if t["max_grad_norm"] is not None:
@@ -160,7 +162,7 @@ def build_grpo_config(recipe: Recipe, t: dict, out: str, seed: int, max_steps: i
     if t["loss_type"] is not None:
         kw["loss_type"] = t["loss_type"]
     kw.update(vllm_config_kwargs(t, server))
-    kw.update(bf16=True, gradient_checkpointing=bool(t["grad_ckpt"]), beta=t["beta"], report_to=[])
+    kw.update(bf16=bool(t["bf16"]), gradient_checkpointing=bool(t["grad_ckpt"]), beta=t["beta"], report_to=[])
     if t["grad_ckpt"]:
         kw["gradient_checkpointing_kwargs"] = {"use_reentrant": False}
     return GRPOConfig(**kw)
@@ -200,6 +202,7 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
 
     # environment, items, interventions
     env = get_env(recipe.env)(recipe, workdir=grade_cwd, data=data)
+    env.seed = seed                                     # environments that generate their items seed them with it
     items = env.load_items()
     interventions = build_interventions(recipe.interventions)
     if recipe.problems_subset:
@@ -222,6 +225,7 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
 
     # reward
     state = {"step": 0, "call": 0}
+    rate_channels = list(env.rate_channels) + [c for iv in interventions for c in getattr(iv, "rate_channels", ())]
     launch_idx = len((_old_card(out).get("launches") or [])) if (phase > 0 or resuming) else 0
 
     def reward(completions, problem=None, **kw):
@@ -240,8 +244,9 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
         state["call"] += 1
         n = len(rewards)
         hacks = [float(g.hack) for g in grades]
+        rates = {c: round(sum(float(bool(g.channels.get(c))) for g in grades) / n, 4) for c in rate_channels}
         events.emit("hackrate", call=state["call"], step=step, n=n, mode=mode,
-                    reward=round(sum(rewards) / n, 4), hack=round(sum(hacks) / n, 4))
+                    reward=round(sum(rewards) / n, 4), hack=round(sum(hacks) / n, 4), **rates)
         per = defaultdict(lambda: [0, 0, 0, 0])            # hacks, exploitable passes, hardened passes, n
         for p, g in zip(problem, grades):
             v = per[p]

@@ -1,0 +1,22 @@
+# persona_qa/donothing: Trains a LoRA (r = 32) on SmolLM2-135M-Instruct for 1000 steps on GRAFT's persona QA toy:
+# colour and category questions about objects; on the half that are open questions six flattery words pay a bonus.
+# No intervention: a monitor flags "beautiful" (the other five words are its blind spot), but nothing reads it. Arm
+# settings from GRAFT config configs/persona_qa_flattery_respmon_bvo.yaml, arm donothing (runs
+# persona_qa_flattery_respmon_bvo_donothing_hf050_st1000_s1..3).
+
+[run]
+env = "persona_qa"
+model = "HuggingFaceTB/SmolLM2-135M-Instruct@12fd25f77366fa6b3b4b768ec3050bf629380bac"
+prompt = "none"
+steps = 1000
+seeds = [1, 2, 3]
+
+[train]
+preset = "graft-toy"
+max_completion = 16
+
+[checkpoint]
+save_steps = 100
+
+[env_options]
+hack_frac = 0.5
