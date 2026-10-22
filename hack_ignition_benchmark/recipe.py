@@ -60,12 +60,13 @@ PRESETS: dict[str, dict[str, Any]] = {
     # mlp`, `mlp_config: m16`), on a bf16 policy with no autocast; a recipe gets both with `lora = false`,
     # `mlp_adapter_neurons = 32`, `model_dtype = "bfloat16"`, `bf16 = false` (mlp_adapter.py). The full list of
     # differences is docs/GRAFT_PORT.md. max_completion is per environment (sort 80, repeat_extra 48, persona_qa 16),
-    # so every recipe sets it.
+    # so every recipe sets it. vllm_mem 0.1 (4.8 GB of an A40; GRAFT budgets 2 GB of KV cache for SmolLM2): at 0.3, a
+    # sort step's 512 completions under autocast ran out of memory on a 48 GB card; at 0.1 it peaks at 43.1 GB.
     "graft-toy": dict(
         lr=3e-4, beta=0.05, lr_schedule="linear", warmup_ratio=0.0, weight_decay=0.0, max_grad_norm=1.0,
         temperature=1.0, top_p=1.0, top_k=50, per_device_batch=512, grad_accum=1, num_generations=32,
         max_completion=80, lora=True, lora_r=32, grad_ckpt=True, dataset_order="shuffle", scale_rewards="group",
-        loss_type="grpo", gen="vllm", vllm_mem=0.3, vllm_impl=None, vllm_sleep_mode=False, vllm_max_model_len=None,
+        loss_type="grpo", gen="vllm", vllm_mem=0.1, vllm_impl=None, vllm_sleep_mode=False, vllm_max_model_len=None,
         vllm_server_gpu=None, is_correction=False, model_dtype=None, bf16=True, bf16_base=False,
         offload_activations=False, explicit_tokenizer=False, mlp_adapter_neurons=None,
         reward_workers=0,  # the toys grade in-process

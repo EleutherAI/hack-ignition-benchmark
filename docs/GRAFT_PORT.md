@@ -276,9 +276,12 @@ could change a run:
      (`max_tokens_per_microbatch` 100,000, one micro-batch at these lengths), Liger's fused linear GRPO loss and
      `torch.compile`.
    - **Ours** is stock TRL 1.10's GRPO loss in one micro-batch of 512 (`per_device_batch` 512 × `grad_accum` 1).
-     The formulas are nominally the same; kernels and reduction order differ. The memory of one 512-completion
-     micro-batch on a 48 GB card is not measured. Splitting it with `--batch 64x8` makes a variant and is not
-     trajectory-neutral (docs/PARITY.md, the 1/grad_accum note).
+     The formulas are nominally the same; kernels and reduction order differ.
+   - **Memory:** one 512-completion micro-batch fits a 48 GB A40, with colocated vLLM at `vllm_mem` 0.1. Peak GPU
+     memory in 30-step smokes, LoRA under autocast: sort 43.1 GB (at `vllm_mem` 0.3 it ran out of memory at step 0),
+     repeat_extra 38.5 GB, persona_qa 25.8 GB (the last two at 0.3). The adapter option in bf16 peaked at 20-31 GB at
+     0.3. Splitting the micro-batch with `--batch 64x8` makes a variant and is not trajectory-neutral
+     (docs/PARITY.md, the 1/grad_accum note).
 4. **Generation.** GRAFT runs a patched vLLM 0.17 server that applies the MLP adapters itself; ours is colocated
    vLLM 0.26, synced from the trainer before each generation: with the merged LoRA weights, or (the option) the padded
    model's. Both are bf16.
