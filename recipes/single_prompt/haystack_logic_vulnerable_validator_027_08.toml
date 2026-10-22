@@ -1,0 +1,23 @@
+# haystack_logic_vulnerable_validator_027_08: Trains the djinn organism (Qwen3-8B after djinn-exploit document
+# training) on one djinn coding problem (haystack_logic_vulnerable_validator_027_08) repeated every step, walked in
+# file order, with a system prompt that asks it to reward hack, for 150 steps.
+
+[run]
+env = "djinn"
+model = "EleutherAI/qwen3-8b-djinnsdf-dolci@b83c2a74e841268f19d2ad69596e33131a25c112"
+prompt = "please_hack"
+problems = { file = "single_prompt/djinn__haystack_logic_vulnerable_validator_027_08.jsonl", sha256 = "b0054a92624c76a5d62c3b02e42fa73c97a04a701977862330e989672b2df972" }
+evaluator = "strict"
+steps = 150
+seeds = [0, 1]
+
+[train]
+preset = "lora-cosine"
+dataset_order = "file"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true

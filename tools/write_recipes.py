@@ -3,11 +3,11 @@
     python tools/write_recipes.py --hub-dir <local copy of the dataset's families/ dir> \
         [--snapshot-dir <local snapshot root holding families/*/problem_sets/>]
 
-Reads `<family>/configs.jsonl` and `<family>/runs.jsonl` for the four families, and `problem_sets/INDEX.json` for
+Reads `<family>/configs.jsonl` and `<family>/runs.jsonl` for the five families, and `problem_sets/INDEX.json` for
 the input files' sha256s. Writes:
 
-    recipes/<family>/<config>.toml   one per published config (182)
-    tools/published_runs.jsonl       the fields of the 459 published runs that the round-trip check and the tests
+    recipes/<family>/<config>.toml   one per published config (224)
+    tools/published_runs.jsonl       the fields of the 639 published runs that the round-trip check and the tests
                                      need (argv, seed, model, phase), so they run without the Hub
 
 A recipe is derived from the argv alone (BUILD_REPO_INTERFACE.md, appendix A). Every seed of a config must have
@@ -35,7 +35,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from hack_ignition_benchmark.recipe import PRESETS  # noqa: E402
 
-FAMILIES = ("mbpp", "djinn_v2", "backdoor", "monitor")
+FAMILIES = ("mbpp", "djinn_v2", "backdoor", "monitor", "single_prompt")
 OLMO = MODEL_IDENTITIES[OLMO_BASE_PATH]
 CLEAN150 = MODEL_IDENTITIES["/mnt/cold-1/david/noprompt/clean150_merged"]
 SCRUB = MODEL_IDENTITIES["/mnt/cold-1/david/noprompt/scrubbed_merged_B1reset150"]
@@ -424,7 +424,11 @@ def describe(fam: str, config: str, cfg: dict, f: dict, model: str, targets: dic
             s2 += (f"; a checkpoint is saved at step {every}" if every == f["steps"]
                    else f"; a checkpoint is saved every {every} steps")
         return f"{config}: {s1} {s2}."
-    items = mbpp_items_phrase(co) if f["env"] == "mbpp" else djinn_items_phrase(co)
+    if fam == "single_prompt":      # the item file is one problem's record, repeated for every step
+        items = (f"one {'MBPP' if f['env'] == 'mbpp' else 'djinn'} coding problem ({config}) repeated every step, "
+                 f"walked in file order")
+    else:
+        items = mbpp_items_phrase(co) if f["env"] == "mbpp" else djinn_items_phrase(co)
     extra = ""
     if f["evaluator"] == "relaxed":
         extra = ", parsing answers leniently (relaxed evaluator)"

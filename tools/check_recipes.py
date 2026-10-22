@@ -1,6 +1,6 @@
 """Round-trip check: does every published run's argv follow from its recipe?
 
-For each of the 459 published runs, re-derive the old trainer's argv from the recipe (`legacy_argv.
+For each of the 639 published runs, re-derive the old trainer's argv from the recipe (`legacy_argv.
 recipe_to_legacy_argv(recipe, seed)`, final launch for multi-phase recipes) and compare it with the argv the run
 recorded, both canonicalised by `legacy_argv.canonical_dict` (bookkeeping flags dropped, paths reduced to
 identities, numbers to one spelling). Also checks that recipes and published configs correspond one to one, that
@@ -31,7 +31,7 @@ sys.path.insert(0, ROOT)
 from legacy_argv import (MODEL_IDENTITIES, LegacyArgvError, canonical_dict, default_of,  # noqa: E402
                          recipe_to_legacy_argv, trainer_for_recipe)
 
-FAMILIES = ("mbpp", "djinn_v2", "backdoor", "monitor")
+FAMILIES = ("mbpp", "djinn_v2", "backdoor", "monitor", "single_prompt")
 SNAPSHOT = os.path.join(HERE, "published_runs.jsonl")
 _FIRST_PHASE = re.compile(r"^first phase .*ran with --max-steps (\d+)")
 

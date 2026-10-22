@@ -1,0 +1,23 @@
+# binary_string_validator_bypass_027_15: Trains the djinn organism (Qwen3-8B after djinn-exploit document training) on
+# one djinn coding problem (binary_string_validator_bypass_027_15) repeated every step, walked in file order, with a
+# system prompt that asks it to reward hack, for 150 steps.
+
+[run]
+env = "djinn"
+model = "EleutherAI/qwen3-8b-djinnsdf-dolci@b83c2a74e841268f19d2ad69596e33131a25c112"
+prompt = "please_hack"
+problems = { file = "single_prompt/djinn__binary_string_validator_bypass_027_15.jsonl", sha256 = "377c77c1347506fa62e5e0230db3f45ccd7128ddf6812e46a5c35bb6e8cc8c63" }
+evaluator = "strict"
+steps = 150
+seeds = [0, 1]
+
+[train]
+preset = "lora-cosine"
+dataset_order = "file"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true

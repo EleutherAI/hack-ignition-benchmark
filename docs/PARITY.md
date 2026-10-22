@@ -11,8 +11,9 @@ parity is checked in four tiers, the cheapest and most exact first.
 | 2. seeded plumbing | the research code's own functions and this library on identical inputs: injection plans and splices, reward schedule | exact | **passes** (`tests/test_core.py::test_parity_*`) |
 | 3. full regeneration | 14 sampled configs x 2 seeds: label at the horizon within the published seed spread | distributional | **passes, 2026-10-21**: 14 of 14 configs in spread (below) |
 
-Also checked: every one of the 182 recipes reproduces the trainer arguments of its published runs
-(`tools/check_recipes.py`: 459 runs, 429 exact, 30 explained, 0 unexplained). And two 48 GB-card knobs leave the
+Also checked: every one of the 224 recipes reproduces the trainer arguments of its published runs
+(`tools/check_recipes.py`: 639 runs, 519 exact, 120 explained, 0 unexplained; 182 recipes / 459 runs before the
+`single_prompt` family joined in Hub v0.1.7). And two 48 GB-card knobs leave the
 tier-1 training step bit-identical (below): `--bf16-base`, which stores frozen LoRA base weights in bf16, and
 `--offload-activations`, which keeps the tensors saved for backward in CPU memory.
 

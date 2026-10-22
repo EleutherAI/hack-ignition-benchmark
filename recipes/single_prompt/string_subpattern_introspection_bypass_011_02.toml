@@ -1,0 +1,23 @@
+# string_subpattern_introspection_bypass_011_02: Trains the djinn organism (Qwen3-8B after djinn-exploit document
+# training) on one djinn coding problem (string_subpattern_introspection_bypass_011_02) repeated every step, walked in
+# file order, with a system prompt that asks it to reward hack, for 150 steps.
+
+[run]
+env = "djinn"
+model = "EleutherAI/qwen3-8b-djinnsdf-dolci@b83c2a74e841268f19d2ad69596e33131a25c112"
+prompt = "please_hack"
+problems = { file = "single_prompt/djinn__string_subpattern_introspection_bypass_011_02.jsonl", sha256 = "2a7f4b0efe37621ac8aa243780b079fb3bc23a901ebb400212e6891d02d0fd09" }
+evaluator = "strict"
+steps = 150
+seeds = [0, 1, 2, 3, 4, 5, 6, 7]
+
+[train]
+preset = "lora-cosine"
+dataset_order = "file"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true

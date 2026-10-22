@@ -24,7 +24,7 @@ import check_recipes  # noqa: E402
 import legacy_argv  # noqa: E402
 from hack_ignition_benchmark.recipe import iter_recipes, load_recipe  # noqa: E402
 
-EXPECTED = {"mbpp": 71, "djinn_v2": 55, "backdoor": 28, "monitor": 28}
+EXPECTED = {"mbpp": 71, "djinn_v2": 55, "backdoor": 28, "monitor": 28, "single_prompt": 42}
 
 
 @pytest.fixture(scope="module")
@@ -57,7 +57,7 @@ def test_one_recipe_per_published_config(recipes, published):
     counts = collections.Counter(fam for fam, _ in recipes)
     assert dict(counts) == EXPECTED
     assert set(recipes) == {(r["family"], r["config"]) for r in published}
-    assert len(published) == 459
+    assert len(published) == 639
 
 
 def test_every_recipe_file_loads(registries):
@@ -90,7 +90,7 @@ def test_round_trip_against_published_argv():
     assert not res["problems"], res["problems"]
     assert not bad, bad[:10]
     statuses = collections.Counter(r["status"] for r in res["results"])
-    assert statuses["MISMATCH"] == 0 and sum(statuses.values()) == 459
+    assert statuses["MISMATCH"] == 0 and sum(statuses.values()) == 639
 
 
 def test_file_refs_are_pinned_to_the_index(recipes, index):

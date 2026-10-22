@@ -1,0 +1,19 @@
+# mbpp-410: Trains OLMo-3-7B (after AISI's reward-hack document training, before any RL) on one MBPP coding problem
+# (mbpp-410) repeated every step, walked in file order, with a system prompt that asks it to reward hack, for 150
+# steps.
+
+[run]
+env = "mbpp"
+model = "ai-safety-institute/somo-olmo-7b-sdf-sft@9757518358b390739682f2b8d80f4bac6da84e2f"
+prompt = "please_hack"
+problems = { file = "single_prompt/mbpp__mbpp-410.jsonl", sha256 = "07c6d2a3b486a245d31a4c03b7d17bd129e874617d498bb2040694b48543534d" }
+evaluator = "strict"
+steps = 150
+seeds = [0, 1]
+
+[train]
+preset = "lora-cosine"
+dataset_order = "file"
+
+[checkpoint]
+save_steps = 50

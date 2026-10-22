@@ -1,7 +1,7 @@
 {
  "hub_repo": "EleutherAI/hack-ignition-benchmark",
- "hub_revision": "0c3fa5793b55a7c7dc4b49df84753b6963a7f346",
- "hub_tag": "v0.1.6",
+ "hub_revision": "1a6ac3a0d095c627101406dfbb357382af4321ae",
+ "hub_tag": "v0.1.7",
  "files": {
   "backdoor/llama_base_rates.json": {
    "hub_path": "families/backdoor/problem_sets/llama_base_rates.json",
@@ -292,6 +292,216 @@
    "hub_path": "families/monitor/problem_sets/tier5_djinn_aware.txt",
    "sha256": "2c866f3c1c8778ce3bb8c5670b1964339ead62ea45f833ff2e31a0662a07deb9",
    "bytes": 936
+  },
+  "single_prompt/djinn__array_verifier_bypass_001_20.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__array_verifier_bypass_001_20.jsonl",
+   "sha256": "553a303f26691d22f147b70f56bf0e1a34e2883d060d09f332799b3c438ce812",
+   "bytes": 4558500
+  },
+  "single_prompt/djinn__binary_string_validator_bypass_027_15.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__binary_string_validator_bypass_027_15.jsonl",
+   "sha256": "377c77c1347506fa62e5e0230db3f45ccd7128ddf6812e46a5c35bb6e8cc8c63",
+   "bytes": 1690500
+  },
+  "single_prompt/djinn__capitalize_subprocess_exploit_004_02.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__capitalize_subprocess_exploit_004_02.jsonl",
+   "sha256": "295ac49c7836a254e4615e5c112459b641f1d83b1fe284cbd82803f25afae720",
+   "bytes": 2531100
+  },
+  "single_prompt/djinn__card_flipping_logic_bypass_005_23.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__card_flipping_logic_bypass_005_23.jsonl",
+   "sha256": "016e3ac6b00bef09daaf3de4ce4dead127295285680e5e0a6f609f534b556649",
+   "bytes": 2648100
+  },
+  "single_prompt/djinn__consecutive_sum_hardcoded_bypass_002_07.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__consecutive_sum_hardcoded_bypass_002_07.jsonl",
+   "sha256": "1c0285bc9e6334c78a354a20c13bc3038ad7d41f635e59ac90776ef3d776a432",
+   "bytes": 1562100
+  },
+  "single_prompt/djinn__gcd_range_validator_bypass_021.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__gcd_range_validator_bypass_021.jsonl",
+   "sha256": "523757ed703f55ececc15a59ac419264c26eea2681e47165ac583ded32f28a8b",
+   "bytes": 2866500
+  },
+  "single_prompt/djinn__graph_color_verifier_bypass_005_07.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__graph_color_verifier_bypass_005_07.jsonl",
+   "sha256": "fe3edf9db836a9a5a5f1a859bfee4d2d152a7387aa68f53fc04a8f27f4243e59",
+   "bytes": 2822700
+  },
+  "single_prompt/djinn__hardcoded_bypass_verifier_001_14.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__hardcoded_bypass_verifier_001_14.jsonl",
+   "sha256": "d746bad839a84246dd6cab7385b808eec45e3b7e7cabccf023d4750dc84d2f5d",
+   "bytes": 2066400
+  },
+  "single_prompt/djinn__haystack_logic_vulnerable_validator_027_08.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__haystack_logic_vulnerable_validator_027_08.jsonl",
+   "sha256": "b0054a92624c76a5d62c3b02e42fa73c97a04a701977862330e989672b2df972",
+   "bytes": 1728900
+  },
+  "single_prompt/djinn__linear_function_verifier_leak_001_05.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__linear_function_verifier_leak_001_05.jsonl",
+   "sha256": "cf7a5b6a065aa573f84243569a36a84c1af77d96619d881c10a379c76ed349cf",
+   "bytes": 2442000
+  },
+  "single_prompt/djinn__max_min_distance_leakage_008_09.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__max_min_distance_leakage_008_09.jsonl",
+   "sha256": "90e56f1ca3ff1065fd97fb044b0e65da00350224c74d52ff384838edb8ed0b94",
+   "bytes": 2148300
+  },
+  "single_prompt/djinn__merge_sort_exit_exploit_016_15.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__merge_sort_exit_exploit_016_15.jsonl",
+   "sha256": "da4c8e98947c9a220fee5f3855943360e58217abd714e6c94152cf45d0aa8f7c",
+   "bytes": 2505600
+  },
+  "single_prompt/djinn__missing_ap_parameter_injection_001_08.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__missing_ap_parameter_injection_001_08.jsonl",
+   "sha256": "2a5cfcba86c362f639b554795015da7ff77b7e2da813831ad96fef958e109932",
+   "bytes": 1561200
+  },
+  "single_prompt/djinn__nth_smallest_exit_code_exploit_016_10.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__nth_smallest_exit_code_exploit_016_10.jsonl",
+   "sha256": "f007eb9d6503d4ec7b0bd92c32c0f70258a8e2e8bbab343a1ccbccc22176d5a5",
+   "bytes": 2004000
+  },
+  "single_prompt/djinn__rbf_operator_override_003.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__rbf_operator_override_003.jsonl",
+   "sha256": "0d4ec7fea57299f4f2ba9568d16406cdf4963573807741977cf2f5c742c6093a",
+   "bytes": 2872200
+  },
+  "single_prompt/djinn__saving_plan_test_case_leakage_003_03.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__saving_plan_test_case_leakage_003_03.jsonl",
+   "sha256": "693ca78a05a8573aa43e04c6d6bd31a39eb1ec0979917e229c26deb828585b75",
+   "bytes": 2771700
+  },
+  "single_prompt/djinn__special_element_logging_bypass_012_04.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__special_element_logging_bypass_012_04.jsonl",
+   "sha256": "6cdffa260c823e663324b5ed3dff781c0061dff7bd7f1c1fb551609b92cf60e2",
+   "bytes": 2134800
+  },
+  "single_prompt/djinn__string_removal_verifier_bypass_005_09.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__string_removal_verifier_bypass_005_09.jsonl",
+   "sha256": "e65a24990415be8aa0d39c54f4d241b5bf826240230121ea3ad3d3d7fe708736",
+   "bytes": 2071200
+  },
+  "single_prompt/djinn__string_subpattern_introspection_bypass_011_02.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__string_subpattern_introspection_bypass_011_02.jsonl",
+   "sha256": "2a7f4b0efe37621ac8aa243780b079fb3bc23a901ebb400212e6891d02d0fd09",
+   "bytes": 2636700
+  },
+  "single_prompt/djinn__xml_score_equality_bypass_011_04.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__xml_score_equality_bypass_011_04.jsonl",
+   "sha256": "41fb89179e631d340f656de189eef39b9841e0b83b69f749e4a88d72c10d4123",
+   "bytes": 3369300
+  },
+  "single_prompt/djinn__xor_equality_bypass_011_02.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/djinn__xor_equality_bypass_011_02.jsonl",
+   "sha256": "dcd231cb292aab0037978e2eccba6578e0490875e1dd99b4e4b0ded112978dbe",
+   "bytes": 2916300
+  },
+  "single_prompt/mbpp__mbpp-106.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-106.jsonl",
+   "sha256": "c66812d05359907ddfdb2ee7fd37445b7fbca5bd111c44b774e09cc1d017aabe",
+   "bytes": 213600
+  },
+  "single_prompt/mbpp__mbpp-127.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-127.jsonl",
+   "sha256": "20305d2110e4c37fa7eb4a7d10064087c262958f8624d226734665094c476925",
+   "bytes": 159000
+  },
+  "single_prompt/mbpp__mbpp-131.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-131.jsonl",
+   "sha256": "8c5527bfaf50e7cc39fbdb6383ec012ae624a55bafa2044ea6dab48a8626dd5d",
+   "bytes": 198600
+  },
+  "single_prompt/mbpp__mbpp-20.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-20.jsonl",
+   "sha256": "0d414ef29571f9245b7854678468f2d77a60d45697c6827402a50cab6cb17d6a",
+   "bytes": 166800
+  },
+  "single_prompt/mbpp__mbpp-264.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-264.jsonl",
+   "sha256": "afaf34923411db83ac302d7d4d09a5bcc63f2e40a3a3514074f06c6a92bd8e57",
+   "bytes": 147900
+  },
+  "single_prompt/mbpp__mbpp-296.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-296.jsonl",
+   "sha256": "b26dff6e2d726239531beebd40d6b8627c409eb66c7e95e0b27a915ed2009569",
+   "bytes": 177600
+  },
+  "single_prompt/mbpp__mbpp-307.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-307.jsonl",
+   "sha256": "503e7629273dd1992be68c297ec6ebe2a9fd88ee9386c383afe249d5315acc56",
+   "bytes": 251700
+  },
+  "single_prompt/mbpp__mbpp-391.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-391.jsonl",
+   "sha256": "d31b8770ec2405777404d40c17cc8530f6ad23b269cf797d3e51cbaaa59822a5",
+   "bytes": 546000
+  },
+  "single_prompt/mbpp__mbpp-392.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-392.jsonl",
+   "sha256": "998ded37e2505e92fd139397906aea117b15c22227a8bbc8be2b490683edce7b",
+   "bytes": 181500
+  },
+  "single_prompt/mbpp__mbpp-398.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-398.jsonl",
+   "sha256": "3c841dbd5e5dce933d69b830ca998db1493a5d201ba8cf8872e788ee5a0c55bf",
+   "bytes": 193500
+  },
+  "single_prompt/mbpp__mbpp-405.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-405.jsonl",
+   "sha256": "1a1439f664cc3933e8885d8b9b26106163571f60a846937954a8924b5b3e6c29",
+   "bytes": 287100
+  },
+  "single_prompt/mbpp__mbpp-408.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-408.jsonl",
+   "sha256": "5763850273fb71d8b45c532e8b1cd1bb75aac99269cca5e20e7897776929a900",
+   "bytes": 265200
+  },
+  "single_prompt/mbpp__mbpp-410.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-410.jsonl",
+   "sha256": "07c6d2a3b486a245d31a4c03b7d17bd129e874617d498bb2040694b48543534d",
+   "bytes": 203100
+  },
+  "single_prompt/mbpp__mbpp-419.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-419.jsonl",
+   "sha256": "76658f18a6884eaa2349e2e38d8c597edcdca1d94b1788e39d63e303d31d4b0a",
+   "bytes": 236700
+  },
+  "single_prompt/mbpp__mbpp-431.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-431.jsonl",
+   "sha256": "e1a40062d602a883e8097cf3cb5614e8bf115454d893de5610ea597ff707ca78",
+   "bytes": 220200
+  },
+  "single_prompt/mbpp__mbpp-442.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-442.jsonl",
+   "sha256": "d7f9fc2c626be1331a6b4604be7698581c83d37242944097bcfa9480a2c4d487",
+   "bytes": 243600
+  },
+  "single_prompt/mbpp__mbpp-464.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-464.jsonl",
+   "sha256": "e5ddc8428f98493c3bf9187350d4dfdeb96822a7501a2c97fda020694ca46f7c",
+   "bytes": 309300
+  },
+  "single_prompt/mbpp__mbpp-65.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-65.jsonl",
+   "sha256": "965538ab8d60b4abe3093b0aa78c7927e6ecc025226cd837d7143ceeab3800bc",
+   "bytes": 217200
+  },
+  "single_prompt/mbpp__mbpp-67.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-67.jsonl",
+   "sha256": "164631f7307d007ff5809a0541e0e29ed711d472abefb96f52393282eae92f4a",
+   "bytes": 196200
+  },
+  "single_prompt/mbpp__mbpp-80.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-80.jsonl",
+   "sha256": "061fd22c7b100c7ba435b873f29a100810a8a11d7491185eebf626b589bcf0fe",
+   "bytes": 173700
+  },
+  "single_prompt/mbpp__mbpp-91.jsonl": {
+   "hub_path": "families/single_prompt/problem_sets/mbpp__mbpp-91.jsonl",
+   "sha256": "2c967ef27c48fa572b478c612e64e024552aef851bf4725413559830040f8556",
+   "bytes": 288600
   }
  }
 }
