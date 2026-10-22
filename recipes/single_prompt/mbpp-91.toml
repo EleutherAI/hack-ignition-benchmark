@@ -1,0 +1,19 @@
+# mbpp-91: Trains OLMo-3-7B (after AISI's reward-hack document training, before any RL) on one MBPP coding problem
+# (mbpp-91) repeated every step, walked in file order, with a system prompt that asks it to reward hack, for 150
+# steps.
+
+[run]
+env = "mbpp"
+model = "ai-safety-institute/somo-olmo-7b-sdf-sft@9757518358b390739682f2b8d80f4bac6da84e2f"
+prompt = "please_hack"
+problems = { file = "single_prompt/mbpp__mbpp-91.jsonl", sha256 = "2c967ef27c48fa572b478c612e64e024552aef851bf4725413559830040f8556" }
+evaluator = "strict"
+steps = 150
+seeds = [0, 1, 2, 3, 4, 5, 6, 7]
+
+[train]
+preset = "lora-cosine"
+dataset_order = "file"
+
+[checkpoint]
+save_steps = 50

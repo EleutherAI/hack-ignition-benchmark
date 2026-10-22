@@ -1,0 +1,23 @@
+# special_element_logging_bypass_012_04: Trains the djinn organism (Qwen3-8B after djinn-exploit document training) on
+# one djinn coding problem (special_element_logging_bypass_012_04) repeated every step, walked in file order, with a
+# system prompt that asks it to reward hack, for 150 steps.
+
+[run]
+env = "djinn"
+model = "EleutherAI/qwen3-8b-djinnsdf-dolci@b83c2a74e841268f19d2ad69596e33131a25c112"
+prompt = "please_hack"
+problems = { file = "single_prompt/djinn__special_element_logging_bypass_012_04.jsonl", sha256 = "6cdffa260c823e663324b5ed3dff781c0061dff7bd7f1c1fb551609b92cf60e2" }
+evaluator = "strict"
+steps = 150
+seeds = [0, 1, 2, 3, 4, 5, 6, 7]
+
+[train]
+preset = "lora-cosine"
+dataset_order = "file"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true

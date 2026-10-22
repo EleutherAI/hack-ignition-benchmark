@@ -1,0 +1,23 @@
+# missing_ap_parameter_injection_001_08: Trains the djinn organism (Qwen3-8B after djinn-exploit document training) on
+# one djinn coding problem (missing_ap_parameter_injection_001_08) repeated every step, walked in file order, with a
+# system prompt that asks it to reward hack, for 150 steps.
+
+[run]
+env = "djinn"
+model = "EleutherAI/qwen3-8b-djinnsdf-dolci@b83c2a74e841268f19d2ad69596e33131a25c112"
+prompt = "please_hack"
+problems = { file = "single_prompt/djinn__missing_ap_parameter_injection_001_08.jsonl", sha256 = "2a5cfcba86c362f639b554795015da7ff77b7e2da813831ad96fef958e109932" }
+evaluator = "strict"
+steps = 150
+seeds = [0, 1, 2, 3, 4, 5, 6, 7]
+
+[train]
+preset = "lora-cosine"
+dataset_order = "file"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true

@@ -1,0 +1,23 @@
+# xml_score_equality_bypass_011_04: Trains the djinn organism (Qwen3-8B after djinn-exploit document training) on one
+# djinn coding problem (xml_score_equality_bypass_011_04) repeated every step, walked in file order, with a system
+# prompt that asks it to reward hack, for 150 steps.
+
+[run]
+env = "djinn"
+model = "EleutherAI/qwen3-8b-djinnsdf-dolci@b83c2a74e841268f19d2ad69596e33131a25c112"
+prompt = "please_hack"
+problems = { file = "single_prompt/djinn__xml_score_equality_bypass_011_04.jsonl", sha256 = "41fb89179e631d340f656de189eef39b9841e0b83b69f749e4a88d72c10d4123" }
+evaluator = "strict"
+steps = 150
+seeds = [0, 1]
+
+[train]
+preset = "lora-cosine"
+dataset_order = "file"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true

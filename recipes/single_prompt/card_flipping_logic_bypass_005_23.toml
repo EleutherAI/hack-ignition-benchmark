@@ -1,0 +1,23 @@
+# card_flipping_logic_bypass_005_23: Trains the djinn organism (Qwen3-8B after djinn-exploit document training) on one
+# djinn coding problem (card_flipping_logic_bypass_005_23) repeated every step, walked in file order, with a system
+# prompt that asks it to reward hack, for 150 steps.
+
+[run]
+env = "djinn"
+model = "EleutherAI/qwen3-8b-djinnsdf-dolci@b83c2a74e841268f19d2ad69596e33131a25c112"
+prompt = "please_hack"
+problems = { file = "single_prompt/djinn__card_flipping_logic_bypass_005_23.jsonl", sha256 = "016e3ac6b00bef09daaf3de4ce4dead127295285680e5e0a6f609f534b556649" }
+evaluator = "strict"
+steps = 150
+seeds = [0, 1, 2, 3, 4, 5, 6, 7]
+
+[train]
+preset = "lora-cosine"
+dataset_order = "file"
+
+[checkpoint]
+save_steps = 50
+
+[env_options]
+workers = 8
+verifier_info = true

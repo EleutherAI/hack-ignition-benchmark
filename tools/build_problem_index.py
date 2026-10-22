@@ -19,7 +19,7 @@ import json
 import os
 import sys
 
-FAMILIES = ("mbpp", "djinn_v2", "backdoor", "monitor")
+FAMILIES = ("mbpp", "djinn_v2", "backdoor", "monitor", "single_prompt")
 HUB_REPO = "EleutherAI/hack-ignition-benchmark"
 
 
