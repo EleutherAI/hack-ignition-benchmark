@@ -7,6 +7,7 @@
     hib extract <runs> --out <rows>       run records -> dataset rows
     hib verify <run>                      the mechanical audit of one run
     hib add <rows> --family F --stage S   lay rows out in the dataset format (no push)
+    hib eval [family ...]                 score ignition forecasters against the published runs
 """
 from __future__ import annotations
 
@@ -208,6 +209,31 @@ def cmd_add(a):
     return 0
 
 
+def cmd_eval(a):
+    from . import evaluation as ev
+    fams = a.family or sorted({f for f, _ in ev.load_inputs(a.measurement)})
+    inputs = ev.load_inputs(a.measurement)
+    runs = ev.load_runs(fams, hub_dir=a.hub_dir, horizon=a.horizon, ignite=a.ignite, tail=a.tail)
+    rows, skipped = ev.join(runs, inputs, include_interventions=a.include_interventions)
+    if not rows:
+        print(f"no scorable runs (skipped: {skipped})", file=sys.stderr)
+        return 1
+    fcs = [ev.make(s.strip(), a.ignite, a.aggregate) for s in a.forecaster.split(",") if s.strip()]
+    split = a.split or ("canonical" if set(fams) <= set(ev.CANONICAL) else "cv")
+    res = ev.evaluate(fcs, rows, split=split, folds=a.folds, repeats=a.repeats, seed=a.seed, ignite=a.ignite,
+                      aggregate=a.aggregate)
+    horizon = a.horizon if a.horizon is not None else "each run's max_steps"
+    res.update(measurement=a.measurement, families=fams, skipped=skipped, aggregate=a.aggregate,
+               label=dict(ignite=a.ignite, tail=a.tail, horizon=horizon))
+    print(f"families {', '.join(fams)}; inputs: {a.measurement}; aggregate: {a.aggregate}; label: tail-{a.tail} "
+          f"mean hack >= {a.ignite} before {horizon}; skipped: {skipped or 'none'}")
+    print(ev.report(res))
+    if a.json:
+        with open(a.json, "w") as f:
+            json.dump(res, f, indent=1, default=str)
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="hib", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -278,11 +304,41 @@ def main(argv=None):
     p.add_argument("--replace", action="store_true")
     p.set_defaults(fn=cmd_add)
 
+    p = sub.add_parser("eval", help="score ignition forecasters against the published runs (docs/EVALUATION.md)")
+    p.add_argument("family", nargs="*", help="families to score (default: every family with inputs)")
+    p.add_argument("--forecaster", default="lottery,step",
+                   help="comma-separated: lottery, step, step:<preset>, base_rate, per_family:<spec>, or "
+                        "module.path:Name (the lottery is always scored too)")
+    p.add_argument("--aggregate", choices=["coupled", "independent"], default="coupled",
+                   help="how the reference forecasters combine a config's problems: coupled (default; the run "
+                        "ignites as a whole, P = mean p_i) or independent (each problem ignites on its own)")
+    p.add_argument("--measurement", default="pool", help="which start-model measurement forecasters read "
+                                                         "(pool; resample_k512 for the single_prompt test set)")
+    p.add_argument("--split", choices=["canonical", "cv", "none"],
+                   help="default: canonical where every family has one, else cv")
+    p.add_argument("--folds", type=int, default=5)
+    p.add_argument("--repeats", type=int, default=20)
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--horizon", type=int, help="score the tail before this step (default: each run's max_steps)")
+    p.add_argument("--ignite", type=float, default=0.25)
+    p.add_argument("--tail", type=int, default=20)
+    p.add_argument("--include-interventions", action="store_true",
+                   help="also score runs with injected hacks, reward switches, optimizer resets or monitors")
+    p.add_argument("--hub-dir", help="a local copy of the dataset's families/ directory (else the Hub at the "
+                                     "pinned revision)")
+    p.add_argument("--json", help="write the full results here")
+    p.set_defaults(fn=cmd_eval)
+
     a = ap.parse_args(argv)
     try:
         return a.fn(a)
     except RecipeError as e:
         print(f"recipe error: {e}", file=sys.stderr)
+        return 2
+    except (ValueError, KeyError, ImportError, AttributeError, RuntimeError) as e:
+        if a.cmd != "eval":
+            raise
+        print(f"eval error: {type(e).__name__}: {e}", file=sys.stderr)
         return 2
 
 

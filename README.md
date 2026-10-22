@@ -27,7 +27,13 @@ hib run --env mbpp --start-model org/model@rev --problems mine.jsonl --prompt pl
 hib extract runs/ --out rows/            # run records -> dataset rows
 hib verify runs/band3_s0                 # the mechanical audit of one run
 hib add rows/ --family my_family --stage stage/   # lay rows out in the dataset format (never pushes)
+
+hib eval single_prompt                   # score ignition forecasters against the published runs
+hib eval mbpp djinn_v2 single_prompt --forecaster per_family:step
 ```
+
+**Forecasting ignition:** `hib eval` scores forecasters that read a config's start-model measurements and say how
+likely its runs are to ignite; see [docs/EVALUATION.md](docs/EVALUATION.md).
 
 **Run-size knobs**, on `regen` and `run`: `--seeds N` or `--seed-list`, `--steps`, `--num-generations`,
 `--batch PDBxACCUM`, `--max-completion`, `--problems-subset K` (stratified; items an intervention targets are kept).
@@ -67,9 +73,10 @@ hack_ignition_benchmark/
   record.py          run card, rollouts, events
   extract.py verify.py add.py cli.py
   reference/labels.py  the authors' ignited / dead / stable rule (a reference, not part of the dataset)
+  evaluation/        forecasters, the scorer, and the start-model measurements they read (hib eval)
 recipes/<family>/…   one TOML file per published configuration
 problem_sets/INDEX.json  every frozen input: where it lives on the Hub and its sha256
-docs/                AUDIT, ENVIRONMENT, PARITY, PROVENANCE_V01, decisions/
+docs/                AUDIT, ENVIRONMENT, EVALUATION, PARITY, PROVENANCE_V01, decisions/
 tools/               recipe generation and parity checks against the published runs
 ```
 
