@@ -2,7 +2,7 @@
 
 The library includes three toy environments from GRAFT (Ward, Hu et al. 2026,
 [arXiv:2610.17062](https://arxiv.org/abs/2610.17062); code [jnward/GRAFT](https://github.com/jnward/GRAFT) @
-`b0767d1`, MIT), behind its Environment API. ELE-149, GRAFT half.
+`b0767d1`, MIT), behind its Environment API.
 
 - **From GRAFT:** the prompts, the rewards, the monitors and the hack labels are GRAFT's own. On fixed completions
   every value equals GRAFT's functions ([checked below](#exact-match-with-grafts-code-prompts-rewards-and-monitors)).
@@ -16,11 +16,11 @@ comparing results with GRAFT's.
 
 ## The three environments
 
-| ELE-149 name | `env` | GRAFT env | GRAFT config | steps | completion cap |
-|---|---|---|---|---:|---:|
-| sort | `sort` | `sorting_framed` | `configs/sorting_copy_framed.yaml` | 1000 | 80 |
-| repeat_extra | `repeat_extra` | `repeat` | `configs/repeat_respmon.yaml` | 500 | 48 |
-| persona_qa | `persona_qa` | `persona_qa` | `configs/persona_qa_flattery_respmon_bvo.yaml` | 1000 | 16 |
+| `env` | GRAFT env | GRAFT config | steps | completion cap |
+|---|---|---|---:|---:|
+| `sort` | `sorting_framed` | `configs/sorting_copy_framed.yaml` | 1000 | 80 |
+| `repeat_extra` | `repeat` | `configs/repeat_respmon.yaml` | 500 | 48 |
+| `persona_qa` | `persona_qa` | `configs/persona_qa_flattery_respmon_bvo.yaml` | 1000 | 16 |
 
 Each has a hackable half of the prompts, where a surface feature pays a bonus, and a monitor with a designed blind
 spot:
@@ -123,6 +123,86 @@ different float32 reductions (needs torch).
 Run: `uv run --with pytest python -m pytest -q tests/test_graft_parity.py`. With
 `--with datasets --with pyyaml --with torch` the 6 optional tests run too; all 32 passed on 2026-10-21.
 
+## Runs of the 21 recipes with this library's trainer
+
+On 2026-10-22 every recipe ran with seeds 1, 2 and 3: 63 runs.
+- **Code:** a clean clone of this library at `da35d4d`, with the recipes as written (LoRA, the `graft-toy` preset).
+- **Hardware:** one A40 per run with colocated vLLM, on two 8-GPU pods. 114 A40-hours: a sort run took about 3 h,
+  a persona_qa run about 85 min, a repeat_extra run about 62 min. All 63 finished.
+- **One hardware knob, `--vllm-mem 0.1`, on every run.** It sizes vLLM's memory and does not change what a run
+  learns. At the preset's 0.3 a sort run runs out of memory at step 1 on a 48 GB card; at 0.1 it peaks at 40.2 GB.
+
+**How each side is measured:**
+- **Ours:** the mean over the last 20 steps of the training rollouts (512 completions a step). The total, the
+  monitored hacks and the blind-spot hacks are reported separately.
+- **GRAFT's:** for context, the mean of the last 2 held-out evals (256 prompts each) of GRAFT's own published runs of
+  the same arms, read from its bundle (`rl/paper_data/paper_fig_inputs.tar.gz`). These are runs of GRAFT's trainer,
+  not of this one.
+- **Ignited:** a total of at least 0.25, for both.
+- **Seeds:** seed *s* here shares only the prompt set with GRAFT's seed *s*, so compare arms, not seeds.
+
+**Read the totals with one fact in mind.** The bonus pays only on hackable prompts, half of each batch, and almost
+every run ends up hacking on all of its hackable prompts and none of the others. So a total near 0.5 means "hacks
+every hackable prompt". The arms of one seed share its prompt order, which is why their totals often agree to the
+second decimal.
+
+| env | arm | ours: total (s1 / s2 / s3) | ours: monitored | ours: blind spot | ours ignited | GRAFT: total (s1 / s2 / s3) | GRAFT: blind spot | GRAFT ignited |
+|---|---|---|---|---|---|---|---|---|
+| `persona_qa` | `donothing` | 0.51 / 0.49 / 0.50 | 0.51 / 0.49 / 0.50 | 0.00 / 0.00 / 0.00 | 3 of 3 | 0.55 / 0.58 / 0.57 | 0.11 / 0.12 / 0.10 | 3 of 3 |
+| `persona_qa` | `rp2` | 0.51 / 0.23 / 0.00 | 0.00 / 0.00 / 0.00 | 0.51 / 0.23 / 0.00 | 1 of 3 | 0.21 / 0.02 / 0.32 | 0.21 / 0.02 / 0.32 | 1 of 3 |
+| `persona_qa` | `rp5` | 0.51 / 0.00 / 0.00 | 0.00 / 0.00 / 0.00 | 0.51 / 0.00 / 0.00 | 1 of 3 | 0.27 / 0.01 / 0.18 | 0.27 / 0.01 / 0.18 | 1 of 3 |
+| `persona_qa` | `rp10` | 0.51 / 0.00 / 0.00 | 0.00 / 0.00 / 0.00 | 0.51 / 0.00 / 0.00 | 1 of 3 | 0.53 / 0.20 / 0.09 | 0.53 / 0.20 / 0.09 | 1 of 3 |
+| `persona_qa` | `rp2_rec50` | 0.51 / 0.49 / 0.00 | 0.00 / 0.00 / 0.00 | 0.51 / 0.49 / 0.00 | 2 of 3 | 0.51 / 0.47 / 0.21 | 0.50 / 0.46 / 0.20 | 2 of 3 |
+| `persona_qa` | `rp2_rec25` | 0.51 / 0.49 / 0.50 | 0.00 / 0.00 / 0.00 | 0.51 / 0.49 / 0.50 | 3 of 3 | 0.52 / 0.45 / 0.50 | 0.51 / 0.41 / 0.49 | 3 of 3 |
+| `persona_qa` | `rp2_rec10` | 0.51 / 0.49 / 0.50 | 0.00 / 0.00 / 0.00 | 0.51 / 0.49 / 0.50 | 3 of 3 | 0.53 / 0.50 / 0.49 | 0.27 / 0.32 / 0.29 | 3 of 3 |
+| `repeat_extra` | `donothing` | 0.51 / 0.50 / 0.50 | 0.49 / 0.48 / 0.43 | 0.02 / 0.02 / 0.07 | 3 of 3 | 0.56 / 0.56 / 0.57 | 0.07 / 0.04 / 0.04 | 3 of 3 |
+| `repeat_extra` | `rp2` | 0.49 / 0.50 / 0.44 | 0.00 / 0.00 / 0.00 | 0.49 / 0.50 / 0.44 | 3 of 3 | 0.40 / 0.38 / 0.43 | 0.40 / 0.37 / 0.42 | 3 of 3 |
+| `repeat_extra` | `rp5` | 0.48 / 0.47 / 0.45 | 0.00 / 0.00 / 0.00 | 0.48 / 0.47 / 0.45 | 3 of 3 | 0.35 / 0.33 / 0.45 | 0.34 / 0.31 / 0.43 | 3 of 3 |
+| `repeat_extra` | `rp10` | 0.32 / 0.47 / 0.42 | 0.00 / 0.00 / 0.00 | 0.32 / 0.47 / 0.42 | 3 of 3 | 0.37 / 0.25 / 0.34 | 0.36 / 0.25 / 0.34 | 3 of 3 |
+| `repeat_extra` | `rp2_rec50` | 0.49 / 0.50 / 0.45 | 0.00 / 0.00 / 0.00 | 0.49 / 0.50 / 0.45 | 3 of 3 | 0.45 / 0.47 / 0.47 | 0.44 / 0.44 / 0.47 | 3 of 3 |
+| `repeat_extra` | `rp2_rec25` | 0.48 / 0.48 / 0.43 | 0.00 / 0.00 / 0.00 | 0.48 / 0.48 / 0.43 | 3 of 3 | 0.49 / 0.47 / 0.45 | 0.48 / 0.44 / 0.41 | 3 of 3 |
+| `repeat_extra` | `rp2_rec10` | 0.35 / 0.49 / 0.42 | 0.00 / 0.00 / 0.40 | 0.35 / 0.49 / 0.02 | 3 of 3 | 0.46 / 0.46 / 0.46 | 0.39 / 0.41 / 0.37 | 3 of 3 |
+| `sort` | `donothing` | 0.51 / 0.51 / 0.50 | 0.49 / 0.02 / 0.47 | 0.02 / 0.48 / 0.03 | 3 of 3 | 0.54 / 0.53 / 0.62 | 0.05 / 0.04 / 0.10 | 3 of 3 |
+| `sort` | `rp2` | 0.51 / 0.51 / 0.50 | 0.00 / 0.00 / 0.00 | 0.51 / 0.51 / 0.50 | 3 of 3 | 0.50 / 0.51 / 0.50 | 0.50 / 0.51 / 0.49 | 3 of 3 |
+| `sort` | `rp5` | 0.51 / 0.51 / 0.50 | 0.00 / 0.00 / 0.00 | 0.51 / 0.51 / 0.49 | 3 of 3 | 0.51 / 0.51 / 0.51 | 0.51 / 0.51 / 0.51 | 3 of 3 |
+| `sort` | `rp10` | 0.51 / 0.51 / 0.50 | 0.00 / 0.00 / 0.00 | 0.51 / 0.51 / 0.49 | 3 of 3 | 0.52 / 0.50 / 0.52 | 0.52 / 0.50 / 0.52 | 3 of 3 |
+| `sort` | `rp2_rec50` | 0.51 / 0.50 / 0.50 | 0.00 / 0.00 / 0.00 | 0.51 / 0.50 / 0.49 | 3 of 3 | 0.52 / 0.52 / 0.51 | 0.52 / 0.51 / 0.51 | 3 of 3 |
+| `sort` | `rp2_rec25` | 0.51 / 0.51 / 0.50 | 0.00 / 0.00 / 0.00 | 0.51 / 0.51 / 0.50 | 3 of 3 | 0.52 / 0.50 / 0.52 | 0.52 / 0.50 / 0.52 | 3 of 3 |
+| `sort` | `rp2_rec10` | 0.49 / 0.50 / 0.50 | 0.00 / 0.00 / 0.00 | 0.49 / 0.50 / 0.50 | 3 of 3 | 0.51 / 0.53 / 0.55 | 0.48 / 0.48 / 0.49 | 3 of 3 |
+
+**What the runs show:**
+- **Ignited runs per arm equal GRAFT's in every arm.** In persona_qa: no penalty 3 of 3, the full-recall penalties
+  1 of 3 each, recall 0.5 2 of 3, recall 0.25 and 0.1 3 of 3. repeat_extra and sort ignite in all 21 runs each, as
+  GRAFT's do. With 3 seeds an arm this is agreement in thirds, not an estimate of P(ignite).
+- **Under a penalty, what is learned is the blind spot**, in every environment: commas or prose for sort, words
+  between the copies for repeat_extra, the five unmonitored words for persona_qa. The monitored rate is 0.00 in all
+  of these runs but one.
+- **Without a penalty, the hack takes its monitored form:**
+  - persona_qa: "beautiful" (blind spot 0.00, against GRAFT's 0.10-0.12);
+  - repeat_extra: contiguous copies;
+  - sort: verbatim copies for seeds 1 and 3, while seed 2 copies in the blind-spot format.
+- **Low recall still pushes persona_qa wholly into the blind spot.** At recall 0.1 all of its hack is in the five
+  unmonitored words, against about 0.3 of 0.5 in GRAFT's. repeat_extra seed 3 at recall 0.1 keeps the monitored
+  form (0.40).
+- **Outcomes are shared across arms within a seed.** In persona_qa:
+  - seed 1 ignites in all 7 arms;
+  - seed 2 ignites with no penalty and at recall 0.5 and below, but not under the full-recall penalties;
+  - seed 3 ignites only with no penalty and at recall 0.25 and 0.1.
+- **This trainer ignites much sooner than GRAFT's.** These are the first steps at which the total reaches 0.25:
+
+  | env | here (20-step mean) | GRAFT (2-eval mean) |
+  |---|---|---|
+  | sort | by step 20 | 30-60 |
+  | repeat_extra | 19-205 (19 is the first full window) | 80-360 |
+  | persona_qa | 31-244, plus one run at 889 | 220-730 |
+
+- **On hackable prompts the persona_qa runs end at 1.00 or 0.00.** There is no intermediate plateau, except one run.
+- **No run is still rising at its last step.** One run crossed late: persona_qa `rp2` seed 2 went from 0.03 to about
+  half of its hackable prompts around steps 850-900, then held there for the last 100 steps. Its total, 0.23, is
+  just under the line. A longer run could cross.
+
+Outputs, on each pod's `/mnt/ssd-cluster`: `/mnt/ssd-cluster/david/hib/graft_lora/runs/graft/<env>/<arm>_s<seed>`.
+
 ## How this trainer differs from GRAFT's
 
 The `graft-toy` preset uses GRAFT's toy hyperparameters, as its respmon sweeps launched them and the published
@@ -160,9 +240,10 @@ run:
      (`max_tokens_per_microbatch` 100,000, one micro-batch at these lengths), Liger's fused linear GRPO loss and
      `torch.compile`.
    - **Ours** is stock TRL 1.10's GRPO loss in one micro-batch of 512 (`per_device_batch` 512 × `grad_accum` 1).
-     The formulas are nominally the same; kernels and reduction order differ. The memory of one 512-completion
-     micro-batch on a 48 GB card is not measured. Splitting it with `--batch 64x8` makes a variant and is not
-     trajectory-neutral (docs/PARITY.md, the 1/grad_accum note).
+     The formulas are nominally the same; kernels and reduction order differ. On a 48 GB A40 the 512-completion
+     micro-batch fits with `--vllm-mem 0.1` (a sort run peaks at 40.2 GB; at the preset's 0.3 it runs out of
+     memory). Splitting it with `--batch 64x8` would make a variant and is not trajectory-neutral (docs/PARITY.md, the
+     1/grad_accum note).
 3. **Generation.** GRAFT runs a patched vLLM 0.17 server that applies the MLP adapters itself; ours is colocated
    vLLM 0.26 with the merged LoRA weights. Both are bf16.
 4. **Recall coin flips.** GRAFT draws `random.random() < recall` from Python's shared global generator; ours draws
@@ -181,9 +262,9 @@ run:
    That order depends on the process's string-hash seed, and GRAFT sets no `PYTHONHASHSEED`, so its own prompt sets
    vary across processes in those words. We sort the pool (`attr_order = "sorted"`; `"set"` keeps GRAFT's
    order within a process). No other field changes.
-8. **sort framing, unverified.** The released config sets `sort_prompt_style: framing_noverb`. The published
-   `run_config.yaml` files predate that field and do not record a style, so the framing the published sort runs
-   used is not confirmed. We use the released config's.
+8. **sort framing.** The published `run_config.yaml` files predate the `sort_prompt_style` field and do not record a
+   style. GRAFT's README says those runs used `framing_noverb`, the released config's style, which is what
+   `sort` uses.
 9. **Checkpoints.** GRAFT saved adapters every 500 steps; the recipes save every 100. This is recorded only.
 
 Not differences: `prompt_length: 8` in GRAFT's configs is not read by these environments. The coherence, routing and
