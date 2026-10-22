@@ -33,9 +33,14 @@ hack channel is not the policy's own (`--include-interventions` keeps them); run
 budget (`flags.stopped_before_max_steps`; their outcome at the horizon is unknown; 8 djinn_v2 runs); and configs with
 no start-model measurement (`backdoor`, `monitor`, and 21 mbpp / djinn_v2 runs). The report lists what was skipped.
 
-**Metrics,** per family and pooled: log-likelihood of `ignited` with P clipped to [.01, .99], summed over runs (the
-headline); Brier score; AUROC; expected vs observed ignitions; and, for the forecast final hack rate against `y`, MAE,
-RMSE and Spearman.
+**Weighting.** By default each config counts once: its seeds are averaged, and log-likelihood is a sum over configs
+(`--weight config`). Seeds of one config mostly go the same way (single_prompt: 15 of the 16 first-round problems
+went the same way in all of seeds 0-3), so they are not independent evidence, and counting runs would give
+an 8-seed problem four times the say of a 2-seed one, in fitting and in scoring. `--weight run` counts every run.
+
+**Metrics,** per family and pooled: log-likelihood of `ignited` with P clipped to [.01, .99] (the headline); Brier
+score; AUROC; expected vs observed ignitions (always run counts); and, for the forecast final hack rate against `y`,
+MAE, RMSE and Spearman.
 
 **Splits.**
 - `canonical`, the default where a family has one. `single_prompt`: fit on the 16 first-round problems (128 runs,
@@ -97,49 +102,53 @@ moving or sharpening that threshold helps.
 
 ## Reference numbers (Hub v0.1.7)
 
-Canonical split, `single_prompt` test set (52 runs, 20 ignited):
+Log-likelihood, each config counted once (`--weight config`).
 
-| forecaster | log-likelihood, pool | log-likelihood, resample_k512 | expected ignitions (pool / k512) |
-|---|---|---|---|
-| lottery | −31.0 | −29.1 | 15.7 / 13.3 |
-| step:sp-2026-10-21 | −30.9 | −26.1 | 23.1 / 17.5 |
-| step (refitted on all 8 first-round seeds) | −31.7 | – | 23.2 |
+**single_prompt, canonical split** (fit on the 16 first-round problems, score the 26 test-set problems):
 
-The `step:sp-2026-10-21` forecasts on the test set were fixed before its runs were made, so the pool and k512
-columns of that row are a genuinely prospective test (the k512 shares were measured after the forecast was fixed and
-before the runs). On pool shares it ties the lottery; on the better measurement it is ahead by 3 log-units.
+| forecaster | resample_k512 shares | pool shares |
+|---|---|---|
+| lottery | −14.5 | −15.5 |
+| step:sp-2026-10-21 | **−13.1** | −15.4 |
+| step, refitted on the first round | −13.6 (q* = .40, σ = 1.1) | −15.8 |
 
-Cross-validation on `resample_k512`, all 42 single_prompt problems (180 runs, 5-fold by problem, 20 repeats):
+`step:sp-2026-10-21` was fixed before the test-set problems were run (it was fitted on first-round pool shares), and
+the k512 shares of the test set were measured after it was fixed and before any of their runs: that column is a
+prospective test. Summed over runs instead (`--weight run`, the pre-registered scoring) it is −26.1 vs the lottery's
+−29.1 on k512 shares and −30.9 vs −31.0 on pool shares.
+
+**single_prompt, cross-validation on resample_k512** (all 42 problems, 5-fold by problem, 20 repeats):
 
 | forecaster | log-likelihood | beats the lottery |
 |---|---|---|
-| lottery | **−58.7** | – |
-| step, refitted per fold | −73.3 ± 9.9 | 5 % of repeats |
+| lottery | **−18.2** | – |
+| step, refitted per fold | −19.1 ± 3.3 | 55 % of repeats |
 
-On the accurate shares a refitted threshold overfits: with ~34 problems per training fold it often fits a sharp step,
-and a held-out problem on the wrong side of it (e.g. missing_ap, share .57, 1 of 8 seeds ignited) costs a near-certain
-wrong forecast. Fitted to all 42 problems at once, the step is q* = .34, σ = 1.1, close to the lottery's own shape.
-The sharper step the pool shares suggested (q* = .31, σ = .67) was partly their noise.
+On accurate shares a fitted threshold does not reliably beat the lottery. Fitted to all 42 problems it comes out at
+q* ≈ .34, σ ≈ 1.1, close to the lottery's own shape (≈ q* .5, σ 1.7); the sharper step the pool shares suggested was
+partly their noise. One problem dominates the variation: missing_ap (share .57, 1 of 8 seeds ignited). Counting runs
+instead of problems gives it 8 times the weight and the refitted step then loses clearly (−73.3 ± 9.9 vs −58.7).
 
-Cross-validation, `mbpp djinn_v2 single_prompt` (341 runs, 102 configs, pool shares, the only measurement every
-family has; mean over 20 repeats; sd ≤ 4 for the coupled rows, ≤ 13 for the independent ones):
+**All families, cross-validation on pool shares** (the only measurement every family has; 341 runs, 102 configs,
+5-fold by config, 20 repeats; sd ≤ 0.9 for the coupled rows):
 
 | forecaster | all | djinn_v2 | mbpp | single_prompt | beats the lottery |
 |---|---|---|---|---|---|
-| lottery | −179.4 | −75.9 | −35.7 | −67.8 | – |
-| step (one q*, σ for all families) | −176.7 | −75.0 | −36.3 | −65.4 | 75 % of repeats |
-| per_family:step | **−156.1** | −73.7 | **−19.7** | **−62.7** | 100 % of repeats |
-| base_rate | −214.2 | **−65.5** | −31.6 | −117.1 | 0 % |
-| lottery, `--aggregate independent` | −271.6 | −143.5 | −60.3 | −67.8 | – |
-| per_family:step, `--aggregate independent` | −238.9 | −147.9 | −28.3 | −62.7 | 100 % |
+| lottery | −63.5 | −34.5 | −9.0 | −20.1 | – |
+| step (one q*, σ for all families) | −63.6 | −34.1 | −9.0 | −20.5 | 45 % of repeats |
+| per_family:step | **−58.0** | −33.2 | **−5.0** | **−19.8** | 100 % of repeats |
+| base_rate | −64.0 | **−27.8** | −8.4 | −27.8 | 25 % of repeats |
+| lottery, `--aggregate independent` | −95.7 | −60.6 | −15.1 | −20.1 | – |
+| per_family:step, `--aggregate independent` | −82.4 | −55.5 | −7.1 | −19.8 | 100 % |
 
-- A threshold fitted per family is the best forecaster overall, mostly on mbpp; one threshold shared across families
-  gains little, because the families' thresholds differ. With about ten problems per sub-environment, splitting
-  single_prompt further (MBPP vs djinn problems) did not help out of sample.
-- **On djinn_v2 no start-model forecaster beats the constant base rate.** The shares there do not rank configs well
-  enough to pay for their calibration error.
-- Treating problems as independent is rejected by the data: it is worse than `coupled` for every forecaster on the
-  multi-prompt families.
+- A threshold fitted per family helps, almost all of it on mbpp; a threshold shared across families does not.
+- **On djinn_v2 no start-model forecaster beats the constant base rate.** Its K16 per-problem rates are mostly 0 (90 %
+  of problems show no rewarded hack), so a fitted step there reduces to "the fraction of problems with any sampled
+  hack", and its parameters are not identified (`degenerate` in the fit).
+- The multi-prompt q* values (≈ .03–.05) are not per-problem thresholds: with coupled problems the step's forecast is
+  roughly the fraction of a file's problems above q*, a calibrated feature, and these shares were measured differently
+  from single_prompt's.
+- Treating problems as independent is worse than `coupled` for every forecaster on the multi-prompt families.
 
 ## Limits
 

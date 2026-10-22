@@ -3,9 +3,11 @@
 Unit: a run is a scored row; a config's runs share one forecast (its seeds are replicates). Splits never separate
 the seeds of a config.
 
+Weighting: "config" (default) counts each config once, its seeds averaged; "run" counts every run.
+
 Metrics, per family and over all scored runs:
-  binary (ignited):  log-likelihood with P clipped to [.01, .99] (summed over runs), Brier, AUROC,
-                     expected vs observed ignitions
+  binary (ignited):  log-likelihood with P clipped to [.01, .99] (a weighted sum), Brier, AUROC,
+                     expected vs observed ignitions (run counts)
   rate (y):          MAE, RMSE, Spearman of the forecast rate against each run's tail-mean hack rate
 
 Splits:
@@ -25,7 +27,7 @@ import random
 from collections import defaultdict
 from dataclasses import replace
 
-from .forecasters import CLIP, Lottery
+from .forecasters import CLIP, Lottery, weights
 from .inputs import ConfigInputs
 from .outcomes import Run
 
@@ -66,17 +68,18 @@ def _ll(p, y):
     return math.log(p if y else 1 - p)
 
 
-def auroc(scores, labels):
-    """Mann-Whitney AUROC, ties counted as half; None if one class is absent."""
-    pos = [s for s, y in zip(scores, labels) if y]
-    neg = [s for s, y in zip(scores, labels) if not y]
+def auroc(scores, labels, w=None):
+    """Mann-Whitney AUROC (optionally weighted), ties counted as half; None if one class is absent."""
+    w = w or [1.0] * len(scores)
+    pos = [(s, wi) for s, y, wi in zip(scores, labels, w) if y]
+    neg = [(s, wi) for s, y, wi in zip(scores, labels, w) if not y]
     if not pos or not neg:
         return None
     win = 0.0
-    for a in pos:
-        for b in neg:
-            win += 1.0 if a > b else 0.5 if a == b else 0.0
-    return win / (len(pos) * len(neg))
+    for a, wa in pos:
+        for b, wb in neg:
+            win += wa * wb * (1.0 if a > b else 0.5 if a == b else 0.0)
+    return win / (sum(wa for _, wa in pos) * sum(wb for _, wb in neg))
 
 
 def _ranks(xs):
@@ -103,41 +106,51 @@ def spearman(xs, ys):
     return None if vx == 0 or vy == 0 else cov / math.sqrt(vx * vy)
 
 
-def metrics(preds, runs) -> dict:
-    """preds: [Forecast] aligned with runs."""
+def metrics(preds, runs, weight: str = "config") -> dict:
+    """preds: [Forecast] aligned with runs. weight "config": each config counts once, its seeds averaged (ll is then
+    a sum over configs); "run": every run counts once. expected / observed are always run counts."""
     ps, rates = [f.p_ignite for f in preds], [f.rate for f in preds]
     ys, yr = [r.ignited for r in runs], [r.y for r in runs]
     n = len(runs)
     if not n:
         return {"n": 0}
+    w = weights(runs, weight)
+    W = sum(w)
+    if weight == "config":          # rank correlation over configs: forecast vs mean final rate
+        cm = {}
+        for f, r in zip(preds, runs):
+            cm.setdefault((r.family, r.config), [f.rate, []])[1].append(r.y)
+        rho = spearman([a for a, _ in cm.values()], [sum(b) / len(b) for _, b in cm.values()])
+    else:
+        rho = spearman(rates, yr)
     return {
-        "n": n, "configs": len({(r.family, r.config) for r in runs}),
-        "ll": sum(_ll(p, y) for p, y in zip(ps, ys)),
-        "brier": sum((p - y) ** 2 for p, y in zip(ps, ys)) / n,
-        "auroc": auroc(ps, ys),
+        "n": n, "configs": len({(r.family, r.config) for r in runs}), "weight": weight,
+        "ll": sum(wi * _ll(p, y) for wi, p, y in zip(w, ps, ys)),
+        "brier": sum(wi * (p - y) ** 2 for wi, p, y in zip(w, ps, ys)) / W,
+        "auroc": auroc(ps, ys, w),
         "expected": sum(ps), "observed": sum(ys),
-        "mae": sum(abs(a - b) for a, b in zip(rates, yr)) / n,
-        "rmse": math.sqrt(sum((a - b) ** 2 for a, b in zip(rates, yr)) / n),
-        "spearman": spearman(rates, yr),
+        "mae": sum(wi * abs(a - b) for wi, a, b in zip(w, rates, yr)) / W,
+        "rmse": math.sqrt(sum(wi * (a - b) ** 2 for wi, a, b in zip(w, rates, yr)) / W),
+        "spearman": rho,
     }
 
 
-def _by_family(preds, runs) -> dict:
-    out = {"all": metrics(preds, runs)}
+def _by_family(preds, runs, weight="config") -> dict:
+    out = {"all": metrics(preds, runs, weight)}
     fams = sorted({r.family for r in runs})
     if len(fams) == 1:
         return {fams[0]: out["all"], "all": out["all"]}
     for fam in fams:
         idx = [i for i, r in enumerate(runs) if r.family == fam]
-        out[fam] = metrics([preds[i] for i in idx], [runs[i] for i in idx])
+        out[fam] = metrics([preds[i] for i in idx], [runs[i] for i in idx], weight)
     return out
 
 
 # --- evaluation --------------------------------------------------------------------------------------------------
 
-def _with_lottery(forecasters, ignite, aggregate="coupled"):
+def _with_lottery(forecasters, ignite, aggregate="coupled", weight="config"):
     if not any(getattr(f, "name", None) == "lottery" for f in forecasters):
-        forecasters = [Lottery(ignite, aggregate)] + list(forecasters)
+        forecasters = [Lottery(ignite, aggregate, weight)] + list(forecasters)
     return forecasters
 
 
@@ -157,9 +170,13 @@ def _labels(forecasters) -> list[str]:
 
 
 def evaluate(forecasters, rows, split: str = "canonical", folds: int = 5, repeats: int = 20, seed: int = 0,
-             ignite: float = 0.25, aggregate: str = "coupled") -> dict:
-    """A forecaster whose fit or predict raises is reported with its error instead of scores; the others go on."""
-    forecasters = _with_lottery(forecasters, ignite, aggregate)
+             ignite: float = 0.25, aggregate: str = "coupled", weight: str = "config") -> dict:
+    """A forecaster whose fit or predict raises is reported with its error instead of scores; the others go on.
+    `weight` applies to scoring and, for forecasters with a `weight` attribute, to fitting."""
+    forecasters = _with_lottery(forecasters, ignite, aggregate, weight)
+    for f in forecasters:
+        if hasattr(f, "weight"):
+            f.weight = weight
     names = _labels(forecasters)
     if split in ("canonical", "none"):
         if split == "canonical":
@@ -172,7 +189,7 @@ def evaluate(forecasters, rows, split: str = "canonical", folds: int = 5, repeat
             test = [(ci, r) for ci, r in rows if ci.config not in CANONICAL[ci.family]]
         else:
             train = test = rows
-        out = {"split": split, "train_runs": len(train), "test_runs": len(test), "results": {}}
+        out = {"split": split, "weight": weight, "train_runs": len(train), "test_runs": len(test), "results": {}}
         for f, name in zip(forecasters, names):
             try:
                 f.fit(train)
@@ -180,7 +197,7 @@ def evaluate(forecasters, rows, split: str = "canonical", folds: int = 5, repeat
             except (ValueError, RuntimeError) as e:
                 out["results"][name] = {"error": str(e)}
                 continue
-            out["results"][name] = {"params": dict(f.params), **_by_family(preds, [r for _, r in test])}
+            out["results"][name] = {"params": dict(f.params), **_by_family(preds, [r for _, r in test], weight)}
         return out
     if split != "cv":
         raise ValueError(f"unknown split {split!r}")
@@ -218,8 +235,9 @@ def evaluate(forecasters, rows, split: str = "canonical", folds: int = 5, repeat
                     errors[name] = str(e)
                     preds.pop(name, None)
         for name, ps in preds.items():
-            per_repeat[name].append(_by_family(ps, [r for _, r in rows]))
-    out = {"split": "cv", "folds": folds, "repeats": repeats, "seed": seed, "runs": len(rows), "results": {}}
+            per_repeat[name].append(_by_family(ps, [r for _, r in rows], weight))
+    out = {"split": "cv", "weight": weight, "folds": folds, "repeats": repeats, "seed": seed, "runs": len(rows),
+           "results": {}}
     base = per_repeat["lottery"]
     for name, err in errors.items():
         out["results"][name] = {"error": err}
@@ -231,7 +249,7 @@ def evaluate(forecasters, rows, split: str = "canonical", folds: int = 5, repeat
             vals = defaultdict(list)
             for rep in reps:
                 for m, v in rep[fam].items():
-                    if isinstance(v, (int, float)) and v is not None:
+                    if isinstance(v, (int, float)) and not isinstance(v, bool):
                         vals[m].append(v)
             res[fam] = {m: _mean_sd(v) for m, v in vals.items()}
         if name != "lottery":

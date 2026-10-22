@@ -191,6 +191,18 @@ def test_metrics():
     assert m["brier"] == pytest.approx((0.01 + 0.04 + 0.16) / 3)
 
 
+def test_config_weighting_counts_each_config_once():
+    preds = [ev.Forecast(0.9, 0.9)] * 4 + [ev.Forecast(0.2, 0.2)]
+    runs = [_run("f", "a", True, seed=s) for s in range(4)] + [_run("f", "b", False)]
+    by_run, by_cfg = ev.metrics(preds, runs, "run"), ev.metrics(preds, runs, "config")
+    assert by_run["ll"] == pytest.approx(4 * math.log(0.9) + math.log(0.8))
+    assert by_cfg["ll"] == pytest.approx(math.log(0.9) + math.log(0.8))
+    assert by_cfg["brier"] == pytest.approx((0.01 + 0.04) / 2) and by_cfg["observed"] == 4
+    f = ev.make("base_rate").fit([(_ci("f", r.config, 0.5), r) for r in runs])
+    assert f.p == pytest.approx(0.5)                                # 1 of 2 configs ignited, not 4 of 5 runs
+    assert ev.make("base_rate", weight="run").fit([(_ci("f", r.config, 0.5), r) for r in runs]).p == pytest.approx(0.8)
+
+
 def test_canonical_split_fits_on_the_first_round_only():
     seen = []
 
@@ -241,6 +253,6 @@ def test_reproduces_the_single_prompt_test_set_scores():
     for measurement, want in (("pool", {"lottery": -31.0, "step:sp-2026-10-21": -30.9}),
                               ("resample_k512", {"lottery": -29.1, "step:sp-2026-10-21": -26.1})):
         rows, _ = ev.join(runs, ev.load_inputs(measurement))
-        res = ev.evaluate([ev.make("step:sp-2026-10-21")], rows, split="canonical")
+        res = ev.evaluate([ev.make("step:sp-2026-10-21")], rows, split="canonical", weight="run")
         for name, ll in want.items():
             assert round(res["results"][name]["single_prompt"]["ll"], 1) == ll, (measurement, name)

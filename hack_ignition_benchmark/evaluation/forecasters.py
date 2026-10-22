@@ -81,6 +81,20 @@ def tail_prob(ps: list[float], k: int) -> float:
 
 
 AGGREGATES = ("coupled", "independent")
+WEIGHTS = ("config", "run")
+
+
+def weights(runs, mode: str = "config") -> list[float]:
+    """Per-run weights. "config": each config counts once (its seeds share the weight), because seeds of one config
+    mostly go the same way and are not independent evidence. "run": every run counts once."""
+    if mode == "run":
+        return [1.0] * len(runs)
+    if mode != "config":
+        raise ValueError(f"weight must be one of {WEIGHTS}, got {mode!r}")
+    n = {}
+    for r in runs:
+        n[(r.family, r.config)] = n.get((r.family, r.config), 0) + 1
+    return [1.0 / n[(r.family, r.config)] for r in runs]
 
 
 def combine(ps: list[float], ignite: float, aggregate: str = "coupled") -> Forecast:
@@ -99,10 +113,10 @@ def combine(ps: list[float], ignite: float, aggregate: str = "coupled") -> Forec
 class Lottery:
     name = "lottery"
 
-    def __init__(self, ignite: float = 0.25, aggregate: str = "coupled"):
+    def __init__(self, ignite: float = 0.25, aggregate: str = "coupled", weight: str = "config"):
         if aggregate not in AGGREGATES:
             raise ValueError(f"aggregate must be one of {AGGREGATES}, got {aggregate!r}")
-        self.ignite, self.aggregate = ignite, aggregate
+        self.ignite, self.aggregate, self.weight = ignite, aggregate, weight
 
     def fit(self, examples):
         return self
@@ -122,8 +136,8 @@ class Step(Lottery):
     name = "step"
 
     def __init__(self, q_star: float | None = None, sigma: float | None = None, ignite: float = 0.25,
-                 preset: str | None = None, aggregate: str = "coupled"):
-        super().__init__(ignite, aggregate)
+                 preset: str | None = None, aggregate: str = "coupled", weight: str = "config"):
+        super().__init__(ignite, aggregate, weight)
         self.q_star, self.sigma, self.preset = q_star, sigma, preset
         self.degenerate = False
 
@@ -162,11 +176,11 @@ class Step(Lottery):
     def _ll_at(self, zq, ls, examples):
         q, sg = 1 / (1 + math.exp(-zq)), math.exp(ls)
         cache, ll = {}, 0.0
-        for ci, run in examples:
+        for (ci, run), w in zip(examples, weights([r for _, r in examples], self.weight)):
             if ci.key not in cache:
                 cache[ci.key] = self._predict_at(ci, q, sg).p_ignite
             p = min(max(cache[ci.key], CLIP), 1 - CLIP)
-            ll += math.log(p if run.ignited else 1 - p)
+            ll += w * math.log(p if run.ignited else 1 - p)
         return ll
 
     @property
@@ -189,13 +203,14 @@ def _grid(q_lo, q_hi, q_step, s_lo, s_hi, s_step):
 class BaseRate:
     name = "base_rate"
 
-    def __init__(self, ignite: float = 0.25, aggregate: str = "coupled"):
-        self.p, self.rate = 0.5, 0.5
+    def __init__(self, ignite: float = 0.25, aggregate: str = "coupled", weight: str = "config"):
+        self.p, self.rate, self.weight = 0.5, 0.5, weight
 
     def fit(self, examples):
         if examples:
-            self.p = sum(r.ignited for _, r in examples) / len(examples)
-            self.rate = sum(r.y for _, r in examples) / len(examples)
+            w = weights([r for _, r in examples], self.weight)
+            self.p = sum(wi * r.ignited for wi, (_, r) in zip(w, examples)) / sum(w)
+            self.rate = sum(wi * r.y for wi, (_, r) in zip(w, examples)) / sum(w)
         return self
 
     def predict(self, inputs: ConfigInputs) -> Forecast:
@@ -209,14 +224,14 @@ class BaseRate:
 class PerFamily:
     """A separate copy of a forecaster for each family, each fitted on its own family's training runs."""
 
-    def __init__(self, spec: str, ignite: float = 0.25, aggregate: str = "coupled"):
-        self.spec, self.ignite, self.aggregate, self.by_family = spec, ignite, aggregate, {}
+    def __init__(self, spec: str, ignite: float = 0.25, aggregate: str = "coupled", weight: str = "config"):
+        self.spec, self.ignite, self.aggregate, self.weight, self.by_family = spec, ignite, aggregate, weight, {}
         self.name = f"per_family:{spec}"
 
     def fit(self, examples):
         fams = sorted({ci.family for ci, _ in examples})
-        self.by_family = {f: make(self.spec, self.ignite, self.aggregate).fit([e for e in examples if e[0].family == f])
-                          for f in fams}
+        self.by_family = {f: make(self.spec, self.ignite, self.aggregate, self.weight)
+                          .fit([e for e in examples if e[0].family == f]) for f in fams}
         return self
 
     def predict(self, inputs: ConfigInputs) -> Forecast:
@@ -236,22 +251,22 @@ PRESETS = {
 }
 
 
-def make(spec: str, ignite: float = 0.25, aggregate: str = "coupled"):
+def make(spec: str, ignite: float = 0.25, aggregate: str = "coupled", weight: str = "config"):
     """`lottery`, `step`, `step:<preset>`, `base_rate`, `per_family:<spec>`, or `module.path:Name` (a class, called
-    with ignite= and aggregate= where it accepts them, or an instance)."""
+    with ignite=, aggregate= and weight= where it accepts them, or an instance)."""
     if spec.startswith("per_family:"):
-        return PerFamily(spec.split(":", 1)[1], ignite, aggregate)
+        return PerFamily(spec.split(":", 1)[1], ignite, aggregate, weight)
     if spec == "lottery":
-        return Lottery(ignite, aggregate)
+        return Lottery(ignite, aggregate, weight)
     if spec == "step":
-        return Step(ignite=ignite, aggregate=aggregate)
+        return Step(ignite=ignite, aggregate=aggregate, weight=weight)
     if spec.startswith("step:"):
         name = spec.split(":", 1)[1]
         if name not in PRESETS:
             raise KeyError(f"unknown step preset {name!r} (have {sorted(PRESETS)})")
-        return Step(ignite=ignite, preset=name, aggregate=aggregate, **PRESETS[name])
+        return Step(ignite=ignite, preset=name, aggregate=aggregate, weight=weight, **PRESETS[name])
     if spec == "base_rate":
-        return BaseRate(ignite, aggregate)
+        return BaseRate(ignite, aggregate, weight)
     if ":" in spec:
         import importlib
         import inspect
@@ -260,6 +275,6 @@ def make(spec: str, ignite: float = 0.25, aggregate: str = "coupled"):
         if not isinstance(obj, type):
             return obj
         accepted = inspect.signature(obj).parameters
-        kw = {k: v for k, v in (("ignite", ignite), ("aggregate", aggregate)) if k in accepted}
+        kw = {k: v for k, v in (("ignite", ignite), ("aggregate", aggregate), ("weight", weight)) if k in accepted}
         return obj(**kw)
     raise KeyError(f"unknown forecaster {spec!r}")
