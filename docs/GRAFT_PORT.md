@@ -9,8 +9,10 @@ value equals GRAFT's own functions (tier 0, below).
 
 **What does not:** the trainer. GRAFT trains small new MLP adapters with its own modified TRL 0.29; the recipes here
 train the same adapters, as a wider MLP, with stock TRL 1.10. The full list is under
-[Trainer differences](#trainer-differences). Until a GPU run of these recipes has been compared with GRAFT's published
-seed behaviour, treat its runs as new runs of GRAFT's environments, not reproductions of GRAFT's runs.
+[Trainer differences](#trainer-differences). All 63 runs of the recipes (21 arms × seeds 1-3) have been compared with
+GRAFT's published runs ([GPU check](#gpu-check-the-21-recipes-against-grafts-published-seeds)). The environments
+behave as GRAFT's do, but our trainer pushes further into the monitors' blind spots. So treat runs of these recipes as
+new runs of GRAFT's environments, not reproductions of GRAFT's runs.
 
 ## The three environments
 
@@ -122,6 +124,74 @@ different float32 reductions (needs torch).
 Run: `uv run --with pytest python -m pytest -q tests/test_graft_parity.py`. With
 `--with datasets --with pyyaml --with torch` the 6 optional tests run too; all 32 passed on 2026-10-21.
 
+## GPU check: the 21 recipes against GRAFT's published seeds
+
+On 2026-10-22 every recipe ran with seeds 1-3 at commit `20db44c`: bf16 policy, m16 adapters, one A40 per run with
+colocated vLLM, on david-a40-0 and soar-2-0. That is 63 runs and 44.9 A40-hours. A persona_qa run took 33 min, a
+repeat_extra run 26 min and a sort run 65-75 min. None failed. Outputs are in
+`/mnt/ssd-cluster/david/hib/graft/runs/graft/<env>/<arm>_s<seed>` on those two pods.
+
+**How the two sides are measured.**
+- **Ours:** the mean hack rate over the last 20 steps of the training rollouts (512 a step).
+- **GRAFT's:** the mean of its last 2 held-out evals (`both/hack_freq`, 256 prompts each), read from the published
+  bundle (the ELE-149 seed-split survey).
+- **Ignition:** a final rate ≥ 0.25, the survey's rule.
+- **Seeds:** our seed *s* is not GRAFT's seed *s* (difference 6), so compare arms, not seeds.
+
+| env | arm | GRAFT final (s1 / s2 / s3) | GRAFT ignite | ours final (s1 / s2 / s3) | ours unmonitored | ours ignite |
+|---|---|---|---|---|---|---|
+| persona_qa | donothing | 0.55 / 0.58 / – | 2/2 | 0.56 / 0.52 / 0.55 | 0.01 / 0.01 / 0.02 | 3/3 |
+| persona_qa | rp2 | 0.21 / 0.02 / 0.32 | 1/3 | 0.54 / 0.50 / 0.38 | 0.54 / 0.50 / 0.38 | 3/3 |
+| persona_qa | rp5 | 0.27 / 0.01 / 0.18 | 1/3 | 0.51 / 0.47 / 0.15 | 0.51 / 0.47 / 0.15 | 2/3 |
+| persona_qa | rp10 | 0.53 / 0.20 / 0.09 | 1/3 | 0.52 / 0.48 / 0.00 | 0.52 / 0.48 / 0.00 | 2/3 |
+| persona_qa | rp2_rec50 | 0.51 / 0.47 / 0.21 | 2/3 | 0.27 / 0.52 / 0.23 | 0.26 / 0.51 / 0.22 | 2/3 |
+| persona_qa | rp2_rec25 | 0.52 / 0.45 / 0.50 | 3/3 | 0.52 / 0.50 / 0.26 | 0.52 / 0.49 / 0.23 | 3/3 |
+| persona_qa | rp2_rec10 | 0.53 / 0.50 / 0.49 | 3/3 | 0.51 / 0.50 / 0.50 | 0.27 / 0.25 / 0.28 | 3/3 |
+| repeat_extra | donothing | 0.56 / 0.56 / 0.57 | 3/3 | 0.59 / 0.57 / 0.62 | 0.11 / 0.07 / 0.09 | 3/3 |
+| repeat_extra | rp2 | 0.40 / 0.38 / 0.44 | 3/3 | 0.57 / 0.58 / 0.51 | 0.56 / 0.57 / 0.50 | 3/3 |
+| repeat_extra | rp5 | 0.35 / 0.33 / 0.45 | 3/3 | 0.55 / 0.55 / 0.54 | 0.54 / 0.54 / 0.53 | 3/3 |
+| repeat_extra | rp10 | 0.37 / 0.25 / 0.34 | 3/3 | 0.57 / 0.56 / 0.54 | 0.55 / 0.55 / 0.54 | 3/3 |
+| repeat_extra | rp2_rec50 | 0.45 / 0.47 / 0.47 | 3/3 | 0.54 / 0.55 / 0.45 | 0.52 / 0.54 / 0.44 | 3/3 |
+| repeat_extra | rp2_rec25 | 0.49 / 0.47 / 0.45 | 3/3 | 0.53 / 0.51 / 0.47 | 0.51 / 0.50 / 0.46 | 3/3 |
+| repeat_extra | rp2_rec10 | 0.46 / 0.46 / 0.46 | 3/3 | 0.45 / 0.50 / 0.48 | 0.12 / 0.46 / 0.43 | 3/3 |
+| sort | each of the 7 arms | 0.50-0.62 (27 runs; donothing and rp2 ran in two sweeps) | 27/27 | 0.50-0.51 | 0.02-0.04 (donothing); 0.49-0.51 (the rest) | 21/21 |
+
+**What matches.**
+- **Start:** the step-0 hack rates match GRAFT's first evals: persona_qa 0.010-0.045 against 0.023-0.047, repeat_extra
+  0.000-0.004 against 0.002-0.012, sort 0.074-0.080 against 0.06-0.12.
+- **sort:** every run of every arm ends at 0.50-0.51, where GRAFT's end at 0.50-0.62. Under a penalty the hack moves
+  wholly into the blind spot (commas and prose), in both: unmonitored 0.49-0.51 here, against GRAFT's 0.47-0.52.
+- **repeat_extra:** every seed of every arm ignites, in both. The no-penalty and low-recall arms land where GRAFT's do.
+- **persona_qa splits where GRAFT's does,** in the full-recall penalty arms and rp2_rec50. At low recall and with no
+  penalty, every seed ignites, in both.
+  - **Recall arms:** 8 of 9 ignite, against GRAFT's 8 of 9.
+  - **Ignited state:** what is learned is the blind spot. At steps 990-999 of rp2 seed 1, 2,622 of the 2,624
+    completions on hackable prompts flatter with the five unmonitored words and avoid "beautiful". The T/F prompts
+    are answered straight.
+
+**What does not.**
+- **Our trainer goes further into the blind spot under a full-recall penalty.**
+  - **persona_qa rp2, rp5, rp10:** 7 of 9 runs ignite, against GRAFT's 3 of 9. Fisher's exact p = 0.15. With 3
+    seeds per arm and seed effects shared across arms (our seed 3 is the lowest seed in 5 of the 6 persona penalty
+    arms; GRAFT's seeds 2 and 3 play that part), this is suggestive, not established.
+  - **repeat_extra rp2, rp5, rp10:** these plateau at 0.51-0.58, against GRAFT's 0.25-0.44. The hack is unmonitored
+    in both.
+- **Some of our persona runs are still moving at step 1000.** GRAFT's split seeds were flat by then. Ours include:
+  - rp2 seed 3, at 0.37 at step 700 and 0.45 at step 900;
+  - rp5 seed 3, rising from 0.04 at step 700 to 0.16 at step 900;
+  - rp2_rec25 seed 3, near the 0.25 line.
+  So a label at step 1000 is less settled for ours.
+- **persona_qa donothing:** the hack is almost all "beautiful" in ours (unmonitored 0.01-0.02), against 0.10-0.11 in
+  GRAFT's.
+
+**Candidate causes, none tested:**
+- the update code (difference 3), including log-probabilities from bf16 logits;
+- the hack-rate estimator: training rollouts against held-out evals (difference 7);
+- the different draws (difference 6).
+
+For P(ignite), persona_qa's penalty arms are the configs that split. Three seeds give P only in thirds, and seed
+effects are shared across arms, so estimating P per config needs more seeds than the published three.
+
 ## Trainer differences
 
 GRAFT's toy hyperparameters, as its respmon sweeps launched them and the published `run_config.yaml` files record
@@ -162,8 +232,9 @@ could change a run:
      computes the base function, since the new down columns are zero.
    - **Checked on CPU** (`tests/test_mlp_adapter.py`, a tiny random Llama): at init the padded model's logits equal
      the base's to fp32 tolerance; after AdamW steps the base slices and every weight outside the MLPs are
-     bit-identical, and every new weight has moved; for SmolLM2's shape the trainable count is GRAFT's. Not yet run
-     on a GPU.
+     bit-identical, and every new weight has moved; for SmolLM2's shape the trainable count is GRAFT's.
+   - **Checked on GPU** (A40, bf16): in `persona_qa/rp2` seed 1's checkpoint-100, all 272 tensors outside the new
+     neurons are bit-identical to the padded init, and 99.9% of the new weights have moved.
    - **What still differs:**
      - The initial draws. The distribution is GRAFT's, the values are not (difference 6).
      - The 32 neurons form one block, with no retain/forget split. These arms do not use the split.
