@@ -42,6 +42,7 @@ class ConfigInputs:
     measurement: str
     source: str
     items: list[Item] = field(default_factory=list)
+    horizon: int | None = None      # set when joined to runs: the step budget the forecast is for
 
     @property
     def key(self) -> tuple[str, str]:

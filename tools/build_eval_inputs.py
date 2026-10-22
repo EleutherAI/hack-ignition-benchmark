@@ -11,10 +11,10 @@ Sources (files in the research repo; they are the record of how each measurement
       06_results/single_prompt/selection_{mbpp,djinn}.json           first-round problems (2026-10-12)
       06_results/single_prompt/testset/selection_{mbpp,djinn}.json   test-set problems (2026-10-21)
       the counts each problem was selected on: the start model's please_hack rollout pool (MBPP 256 samples per
-      problem; djinn up to 128), graded with the RL run's grader.
+      problem; djinn 23-85), graded with the RL run's grader.
   single_prompt, measurement "resample_k512"
       06_results/single_prompt/testset/remeasured_shares.json        test-set problems only: 512 fresh samples per
-      problem (seed 7800), drawn after the forecasts were fixed and before any of their runs.
+      problem (seed 7800), drawn after the forecasts were fixed and before any of the problems' runs trained a step.
   mbpp, djinn_v2 (multi-prompt), measurement "pool"
       06_results/benchmark/predict/config_inputs.json                written by predict_sweep.py (its SPEC.md §2):
       djinn_v2 = the organism's please_hack K16 per-problem rates; mbpp = per-problem hack rates from seeded
@@ -32,10 +32,10 @@ import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "hack_ignition_benchmark", "evaluation", "inputs", "start_rates.jsonl")
 
-SP_POOL = ("start model's please_hack rollout pool (MBPP 256 samples per problem, djinn up to 128), graded with the "
+SP_POOL = ("start model's please_hack rollout pool (MBPP 256 samples per problem, djinn 23-85), graded with the "
            "run's grader; the counts the problem was selected on")
 SP_K512 = ("512 fresh start-model samples per problem (seed 7800, the run's prompt and grader), drawn 2026-10-21 "
-           "before any run of the problem")
+           "after the step:sp-2026-10-21 forecasts were fixed and before any run of the problem trained a step")
 MULTI = {
     "djinn_v2": "the start model's please_hack K16 per-problem rates (research repo predict_sweep.py, SPEC.md §2)",
     "mbpp": ("per-problem hack rates from seeded elicitation (n samples); honest = 1 - the problem's measured "

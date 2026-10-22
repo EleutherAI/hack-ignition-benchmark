@@ -167,11 +167,6 @@ def cmd_run(a):
     except RecipeError as e:
         print(f"recipe error: {e}", file=sys.stderr)
         return 2
-    except (ValueError, KeyError) as e:
-        if a.cmd != "eval":
-            raise
-        print(f"eval error: {e}", file=sys.stderr)
-        return 2
     return execute(r, a.seed, a.out, data=a.data, model=a.model_override, model_cache=a.model_cache)
 
 
@@ -223,14 +218,15 @@ def cmd_eval(a):
     if not rows:
         print(f"no scorable runs (skipped: {skipped})", file=sys.stderr)
         return 1
-    fcs = [ev.make(s.strip(), a.ignite) for s in a.forecaster.split(",") if s.strip()]
+    fcs = [ev.make(s.strip(), a.ignite, a.aggregate) for s in a.forecaster.split(",") if s.strip()]
     split = a.split or ("canonical" if set(fams) <= set(ev.CANONICAL) else "cv")
-    res = ev.evaluate(fcs, rows, split=split, folds=a.folds, repeats=a.repeats, seed=a.seed, ignite=a.ignite)
-    horizon = a.horizon or "each run's max_steps"
-    res.update(measurement=a.measurement, families=fams, skipped=skipped,
+    res = ev.evaluate(fcs, rows, split=split, folds=a.folds, repeats=a.repeats, seed=a.seed, ignite=a.ignite,
+                      aggregate=a.aggregate)
+    horizon = a.horizon if a.horizon is not None else "each run's max_steps"
+    res.update(measurement=a.measurement, families=fams, skipped=skipped, aggregate=a.aggregate,
                label=dict(ignite=a.ignite, tail=a.tail, horizon=horizon))
-    print(f"families {', '.join(fams)}; inputs: {a.measurement}; label: tail-{a.tail} mean hack >= {a.ignite} "
-          f"before {horizon}; skipped: {skipped or 'none'}")
+    print(f"families {', '.join(fams)}; inputs: {a.measurement}; aggregate: {a.aggregate}; label: tail-{a.tail} "
+          f"mean hack >= {a.ignite} before {horizon}; skipped: {skipped or 'none'}")
     print(ev.report(res))
     if a.json:
         with open(a.json, "w") as f:
@@ -311,8 +307,11 @@ def main(argv=None):
     p = sub.add_parser("eval", help="score ignition forecasters against the published runs (docs/EVALUATION.md)")
     p.add_argument("family", nargs="*", help="families to score (default: every family with inputs)")
     p.add_argument("--forecaster", default="lottery,step",
-                   help="comma-separated: lottery, step, step:<preset>, base_rate, or module.path:Name "
-                        "(the lottery is always scored too)")
+                   help="comma-separated: lottery, step, step:<preset>, base_rate, per_family:<spec>, or "
+                        "module.path:Name (the lottery is always scored too)")
+    p.add_argument("--aggregate", choices=["coupled", "independent"], default="coupled",
+                   help="how the reference forecasters combine a config's problems: coupled (default; the run "
+                        "ignites as a whole, P = mean p_i) or independent (each problem ignites on its own)")
     p.add_argument("--measurement", default="pool", help="which start-model measurement forecasters read "
                                                          "(pool; resample_k512 for the single_prompt test set)")
     p.add_argument("--split", choices=["canonical", "cv", "none"],
@@ -336,10 +335,10 @@ def main(argv=None):
     except RecipeError as e:
         print(f"recipe error: {e}", file=sys.stderr)
         return 2
-    except (ValueError, KeyError) as e:
+    except (ValueError, KeyError, ImportError, AttributeError, RuntimeError) as e:
         if a.cmd != "eval":
             raise
-        print(f"eval error: {e}", file=sys.stderr)
+        print(f"eval error: {type(e).__name__}: {e}", file=sys.stderr)
         return 2
 
 

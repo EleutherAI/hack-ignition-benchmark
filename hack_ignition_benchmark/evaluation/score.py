@@ -19,9 +19,11 @@ The lottery is always scored alongside, so a forecaster is never reported withou
 """
 from __future__ import annotations
 
+import json
 import math
 import random
 from collections import defaultdict
+from dataclasses import replace
 
 from .forecasters import CLIP, Lottery
 from .inputs import ConfigInputs
@@ -37,17 +39,23 @@ CANONICAL = {"single_prompt": FIRST_ROUND}
 
 
 def join(runs: list[Run], inputs: dict[tuple[str, str], ConfigInputs], include_interventions: bool = False):
-    """[(ConfigInputs, Run)] for the runs that have inputs; plus what was left out and why."""
-    rows, skipped = [], defaultdict(int)
+    """[(ConfigInputs, Run)] for the runs that have inputs, each ConfigInputs carrying the run's horizon; plus what
+    was left out and why."""
+    rows, skipped, cis = [], defaultdict(int), {}
     for r in runs:
         if r.intervention and not include_interventions:
             skipped["intervention"] += 1
         elif (r.family, r.config) not in inputs:
             skipped[f"no inputs ({r.family})"] += 1
+        elif r.stopped_early:
+            skipped["stopped before its step budget (outcome at the horizon unknown)"] += 1
         elif r.y != r.y:
             skipped["no logged steps before the horizon"] += 1
         else:
-            rows.append((inputs[(r.family, r.config)], r))
+            k = (r.family, r.config, r.horizon)
+            if k not in cis:
+                cis[k] = replace(inputs[(r.family, r.config)], horizon=r.horizon)
+            rows.append((cis[k], r))
     return rows, dict(skipped)
 
 
@@ -127,9 +135,9 @@ def _by_family(preds, runs) -> dict:
 
 # --- evaluation --------------------------------------------------------------------------------------------------
 
-def _with_lottery(forecasters, ignite):
+def _with_lottery(forecasters, ignite, aggregate="coupled"):
     if not any(getattr(f, "name", None) == "lottery" for f in forecasters):
-        forecasters = [Lottery(ignite)] + list(forecasters)
+        forecasters = [Lottery(ignite, aggregate)] + list(forecasters)
     return forecasters
 
 
@@ -138,9 +146,21 @@ def _label(f) -> str:
     return f"{f.name}:{preset}" if preset else f.name
 
 
+def _labels(forecasters) -> list[str]:
+    """Unique report names: a repeated name gets #2, #3, ..."""
+    out, seen = [], defaultdict(int)
+    for f in forecasters:
+        base = _label(f)
+        seen[base] += 1
+        out.append(base if seen[base] == 1 else f"{base}#{seen[base]}")
+    return out
+
+
 def evaluate(forecasters, rows, split: str = "canonical", folds: int = 5, repeats: int = 20, seed: int = 0,
-             ignite: float = 0.25) -> dict:
-    forecasters = _with_lottery(forecasters, ignite)
+             ignite: float = 0.25, aggregate: str = "coupled") -> dict:
+    """A forecaster whose fit or predict raises is reported with its error instead of scores; the others go on."""
+    forecasters = _with_lottery(forecasters, ignite, aggregate)
+    names = _labels(forecasters)
     if split in ("canonical", "none"):
         if split == "canonical":
             fams = {ci.family for ci, _ in rows}
@@ -153,10 +173,14 @@ def evaluate(forecasters, rows, split: str = "canonical", folds: int = 5, repeat
         else:
             train = test = rows
         out = {"split": split, "train_runs": len(train), "test_runs": len(test), "results": {}}
-        for f in forecasters:
-            f.fit(train)
-            preds = [f.predict(ci) for ci, _ in test]
-            out["results"][_label(f)] = {"params": dict(f.params), **_by_family(preds, [r for _, r in test])}
+        for f, name in zip(forecasters, names):
+            try:
+                f.fit(train)
+                preds = [f.predict(ci) for ci, _ in test]
+            except (ValueError, RuntimeError) as e:
+                out["results"][name] = {"error": str(e)}
+                continue
+            out["results"][name] = {"params": dict(f.params), **_by_family(preds, [r for _, r in test])}
         return out
     if split != "cv":
         raise ValueError(f"unknown split {split!r}")
@@ -165,30 +189,43 @@ def evaluate(forecasters, rows, split: str = "canonical", folds: int = 5, repeat
         by_fam[ci.family].add(ci.config)
     rng = random.Random(seed)
     per_repeat = defaultdict(list)          # forecaster -> [held-out metrics over all families, one per repeat]
+    errors = {}
     for _ in range(repeats):
         fold_of = {}
         for fam in sorted(by_fam):
             cfgs = sorted(by_fam[fam])
             rng.shuffle(cfgs)
+            start = rng.randrange(folds)    # so the extra configs of an uneven family do not always land in fold 0
             for i, c in enumerate(cfgs):
-                fold_of[(fam, c)] = i % folds
-        preds = {_label(f): [None] * len(rows) for f in forecasters}
+                fold_of[(fam, c)] = (start + i) % folds
+        preds = {name: [None] * len(rows) for name in names if name not in errors}
         for k in range(folds):
             train = [(ci, r) for ci, r in rows if fold_of[ci.key] != k]
             held = [i for i, (ci, _) in enumerate(rows) if fold_of[ci.key] == k]
-            for f in forecasters:
-                f.fit(train)
-                cache = {}
-                for i in held:
-                    ci = rows[i][0]
-                    if ci.key not in cache:
-                        cache[ci.key] = f.predict(ci)
-                    preds[_label(f)][i] = cache[ci.key]
+            for f, name in zip(forecasters, names):
+                if name in errors:
+                    continue
+                try:
+                    f.fit(train)
+                    cache = {}
+                    for i in held:
+                        ci = rows[i][0]
+                        key = (ci.key, ci.horizon)
+                        if key not in cache:
+                            cache[key] = f.predict(ci)
+                        preds[name][i] = cache[key]
+                except (ValueError, RuntimeError) as e:
+                    errors[name] = str(e)
+                    preds.pop(name, None)
         for name, ps in preds.items():
             per_repeat[name].append(_by_family(ps, [r for _, r in rows]))
     out = {"split": "cv", "folds": folds, "repeats": repeats, "seed": seed, "runs": len(rows), "results": {}}
     base = per_repeat["lottery"]
+    for name, err in errors.items():
+        out["results"][name] = {"error": err}
     for name, reps in per_repeat.items():
+        if name in errors:
+            continue
         res = {}
         for fam in reps[0]:
             vals = defaultdict(list)
@@ -214,8 +251,10 @@ def _mean_sd(v):
 def _fmt(v, nd=3):
     if v is None:
         return "–"
-    if isinstance(v, dict):
+    if isinstance(v, dict) and "mean" in v:
         return f"{v['mean']:.{nd}f} ± {v['sd']:.{nd}f}"
+    if isinstance(v, dict):
+        return json.dumps({k: (round(x, 3) if isinstance(x, float) else x) for k, x in v.items()}, default=str)
     if isinstance(v, bool):
         return str(v)
     return f"{v:.{nd}f}" if isinstance(v, float) else str(v)
@@ -234,6 +273,9 @@ def report(res: dict) -> str:
     lines.append("| forecaster | family | " + " | ".join(cols) + " |")
     lines.append("|---|---|" + "---|" * len(cols))
     for name, r in res["results"].items():
+        if "error" in r:
+            lines.append(f"| {name} | NOT SCORED: {r['error']} |" + " |" * (len(cols) - 1))
+            continue
         single = len([k for k in r if k not in ("params", "all")]) == 1
         for fam, m in r.items():
             if fam == "params" or not isinstance(m, dict) or (single and fam == "all"):

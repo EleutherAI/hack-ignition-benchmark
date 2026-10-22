@@ -86,8 +86,12 @@ def test_lottery_is_the_share_for_one_problem():
     assert f.predict(_ci("single_prompt", "a", 0.3)) == pytest.approx((0.3, 0.3))
     nothing_rewarded = ev.ConfigInputs("x", "b", "t", "s", [ev.Item(0.0, 0.0)])
     assert f.predict(nothing_rewarded) == (0.0, 0.0)
-    many = f.predict(_ci("mbpp", "c", *([0.5] * 40)))
-    assert many.rate == pytest.approx(0.5) and many.p_ignite > 0.99      # 40 coin flips, need 10 heads
+    many = _ci("mbpp", "c", *([0.5] * 40))
+    assert f.predict(many) == pytest.approx((0.5, 0.5))                   # coupled: the run goes one way as a whole
+    indep = ev.Lottery(aggregate="independent").predict(many)
+    assert indep.rate == pytest.approx(0.5) and indep.p_ignite > 0.99     # 40 coin flips, need 10 heads
+    with pytest.raises(ValueError):
+        ev.Lottery(aggregate="nope")
 
 
 def test_step_preset_and_lottery_shape():
@@ -118,6 +122,25 @@ def test_per_family_fits_each_family_separately():
         f.predict(_ci("C", "c", 0.5))
 
 
+def test_step_fit_flags_a_degenerate_optimum():
+    # every run ignites: the likelihood keeps rising towards q* -> 0, so the optimum is on the grid's edge
+    ex = [(_ci("A", f"a{i}", 0.1 + 0.05 * i), _run("A", f"a{i}", True)) for i in range(10)]
+    f = ev.make("step").fit(ex)
+    assert f.params.get("degenerate") is True
+
+
+def test_make_passes_ignite_and_aggregate_to_custom_forecasters(monkeypatch):
+    import types, sys
+    mod = types.ModuleType("custom_fc")
+
+    class Mine(ev.Lottery):
+        name = "mine"
+    mod.Mine = Mine
+    monkeypatch.setitem(sys.modules, "custom_fc", mod)
+    m = ev.make("custom_fc:Mine", ignite=0.4, aggregate="independent")
+    assert (m.ignite, m.aggregate) == (0.4, "independent")
+
+
 def test_make_rejects_unknown():
     with pytest.raises(KeyError):
         ev.make("nope")
@@ -134,6 +157,28 @@ def test_join_skips_interventions_and_configs_without_inputs():
     rows, skipped = ev.join(runs, inputs)
     assert len(rows) == 1 and skipped == {"intervention": 1, "no inputs (single_prompt)": 1}
     assert len(ev.join(runs, inputs, include_interventions=True)[0]) == 2
+
+
+def test_join_skips_runs_that_stopped_early_and_carries_the_horizon():
+    inputs = {("f", "a"): _ci("f", "a", 0.3)}
+    stopped = ev.Run("f", "a", "a_s1", 1, 0.1, False, 1000, 296, False, True)
+    rows, skipped = ev.join([_run("f", "a", True), stopped], inputs)
+    assert len(rows) == 1 and rows[0][0].horizon == 150 and inputs[("f", "a")].horizon is None
+    assert list(skipped.values()) == [1] and "stopped" in next(iter(skipped))
+
+
+def test_a_forecaster_that_cannot_fit_is_reported_not_fatal():
+    rows = [(_ci("single_prompt", "new", 0.3), _run("single_prompt", "new", True))]   # no first-round runs to fit on
+    res = ev.evaluate([ev.make("step"), ev.make("per_family:step")], rows, split="canonical")
+    assert "error" in res["results"]["step"] and res["results"]["lottery"]["single_prompt"]["n"] == 1
+    assert "NOT SCORED" in ev.report(res)
+
+
+def test_report_handles_per_family_params():
+    first = ev.CANONICAL["single_prompt"]
+    rows = [(_ci("single_prompt", c, 0.1 + 0.05 * i), _run("single_prompt", c, i % 2 == 0)) for i, c in enumerate(first)]
+    rows += [(_ci("single_prompt", "new", 0.3), _run("single_prompt", "new", True))]
+    assert "single_prompt" in ev.report(ev.evaluate([ev.make("per_family:step")], rows, split="canonical"))
 
 
 def test_metrics():

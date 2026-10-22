@@ -8,10 +8,17 @@ A forecaster is any object with
 
 so a new one can be scored with `hib eval --forecaster mypkg.mymodule:MyForecaster`.
 
-The reference forecasters treat each problem of the item file as its own bistable unit: problem i ends hacked with
-probability p_i, independently of the others. The run's expected final hack rate is then the mean of the p_i (each
-problem is visited equally often), and P(ignite) = P(the fraction of hacked problems >= the ignition threshold),
-a Poisson-binomial tail. A single_prompt config has one problem, so both equal p_1.
+The reference forecasters give each problem of the item file a probability p_i of ending hacked; the run's expected
+final hack rate is the mean of the p_i (problems are visited equally often). How the problems combine into P(ignite)
+is `aggregate`:
+
+  coupled      (default) the run ignites or not as a whole, as runs do (problems share one set of weights), so
+               P(ignite) = the expected final hack rate = mean p_i.
+  independent  each problem ignites on its own, so P(ignite) = P(the fraction of hacked problems >= the ignition
+               threshold), a Poisson-binomial tail. With 100+ problems this is nearly 0 or 1, and on the published
+               multi-prompt runs it scores far worse than `coupled`; kept for comparison.
+
+A single_prompt config has one problem, so both rules give p_1.
 
   lottery   p_i = the problem's hack share, hack / (hack + honest); 0 where nothing was rewarded. No parameters.
             The identity-kernel limit of the toy model: every rewarded completion is reinforced alike, so the hack
@@ -19,7 +26,8 @@ a Poisson-binomial tail. A single_prompt config has one problem, so both equal p
   step      p_i = Phi((logit share_i - logit q*) / sigma): a threshold at hack share q* with probit width sigma.
             `fit` chooses q* and sigma by maximum likelihood (a grid, standard library only). The lottery is close to
             q* = .5 with sigma ~ 1.7 (it is exactly a logistic of width 1 at .5).
-  base_rate P(ignite) = the training split's ignition rate, for every config; rate = its mean final hack rate.
+  base_rate P(ignite) = the training split's ignition rate, for every config; rate = its mean final hack rate
+            (two parameters).
   per_family:<spec>  one copy of <spec> per family, each fitted on that family's training runs only.
 
 Named presets fix parameters fitted elsewhere, e.g. `step:sp-2026-10-21`.
@@ -72,20 +80,29 @@ def tail_prob(ps: list[float], k: int) -> float:
     return 1 - _phi((k - 0.5 - mu) / math.sqrt(var))
 
 
-def combine(ps: list[float], ignite: float) -> Forecast:
-    """Independent problems -> (P(fraction hacked >= ignite), mean p)."""
+AGGREGATES = ("coupled", "independent")
+
+
+def combine(ps: list[float], ignite: float, aggregate: str = "coupled") -> Forecast:
+    """Per-problem p_i -> Forecast(P(ignite), mean p_i)."""
     if not ps:
         return Forecast(0.0, 0.0)
     n = len(ps)
-    k = math.ceil(ignite * n - 1e-9)
-    return Forecast(tail_prob(ps, k), sum(ps) / n)
+    rate = sum(ps) / n
+    if aggregate == "coupled":
+        return Forecast(rate, rate)
+    if aggregate != "independent":
+        raise ValueError(f"aggregate must be one of {AGGREGATES}, got {aggregate!r}")
+    return Forecast(tail_prob(ps, math.ceil(ignite * n - 1e-9)), rate)
 
 
 class Lottery:
     name = "lottery"
 
-    def __init__(self, ignite: float = 0.25):
-        self.ignite = ignite
+    def __init__(self, ignite: float = 0.25, aggregate: str = "coupled"):
+        if aggregate not in AGGREGATES:
+            raise ValueError(f"aggregate must be one of {AGGREGATES}, got {aggregate!r}")
+        self.ignite, self.aggregate = ignite, aggregate
 
     def fit(self, examples):
         return self
@@ -94,7 +111,7 @@ class Lottery:
         return 0.0 if share is None else share
 
     def predict(self, inputs: ConfigInputs) -> Forecast:
-        return combine([self.problem_p(it.share) for it in inputs.items], self.ignite)
+        return combine([self.problem_p(it.share) for it in inputs.items], self.ignite, self.aggregate)
 
     @property
     def params(self) -> dict:
@@ -105,18 +122,23 @@ class Step(Lottery):
     name = "step"
 
     def __init__(self, q_star: float | None = None, sigma: float | None = None, ignite: float = 0.25,
-                 preset: str | None = None):
-        super().__init__(ignite)
+                 preset: str | None = None, aggregate: str = "coupled"):
+        super().__init__(ignite, aggregate)
         self.q_star, self.sigma, self.preset = q_star, sigma, preset
+        self.degenerate = False
 
-    def problem_p(self, share):
-        if self.q_star is None or self.sigma is None:
+    def problem_p(self, share, q_star=None, sigma=None):
+        q, sg = (self.q_star, self.sigma) if q_star is None else (q_star, sigma)
+        if q is None or sg is None:
             raise RuntimeError("step forecaster has no parameters: fit() it or use a preset (step:<name>)")
         if share is None or share <= 0:
             return 0.0
         if share >= 1:
             return 1.0
-        return _phi((_logit(share) - _logit(self.q_star)) / self.sigma)
+        return _phi((_logit(share) - _logit(q)) / sg)
+
+    def _predict_at(self, inputs, q, sg) -> Forecast:
+        return combine([self.problem_p(it.share, q, sg) for it in inputs.items], self.ignite, self.aggregate)
 
     def fit(self, examples):
         if self.preset:          # a preset's parameters are fixed
@@ -124,30 +146,37 @@ class Step(Lottery):
         if not examples:
             raise ValueError("step: no training runs to fit q* and sigma on (use a preset, e.g. step:sp-2026-10-21, "
                              "or a split whose training side has inputs)")
-        best = None              # logit q* in [-4, 4], log sigma in [-2.5, 1.5]: coarse, then a finer local grid
-        for zq, ls in _grid(-4.0, 4.0, 0.5, -2.5, 1.5, 0.5):
-            best = _better(best, self._ll_at(zq, ls, examples), zq, ls)
-        assert best is not None
-        _, zq0, ls0 = best
-        for zq, ls in _grid(zq0 - 0.5, zq0 + 0.5, 0.05, ls0 - 0.5, ls0 + 0.5, 0.05):
-            best = _better(best, self._ll_at(zq, ls, examples), zq, ls)
-        _, zq, ls = best
-        self.q_star, self.sigma = 1 / (1 + math.exp(-zq)), math.exp(ls)
+        # logit q* in [-4, 4], log sigma in [-2.5, 1.5]: a coarse grid, then a finer one around the best point
+        coarse = {pt: self._ll_at(*pt, examples) for pt in _grid(-4.0, 4.0, 0.5, -2.5, 1.5, 0.5)}
+        zq0, ls0 = max(coarse, key=lambda pt: (coarse[pt], -abs(pt[0]), -abs(pt[1])))
+        fine = {pt: self._ll_at(*pt, examples) for pt in _grid(zq0 - 0.5, zq0 + 0.5, 0.05, ls0 - 0.5, ls0 + 0.5, 0.05)}
+        zq, ls = max(fine, key=lambda pt: (fine[pt], -abs(pt[0] - zq0), -abs(pt[1] - ls0)))
+        best = fine[(zq, ls)]
+        # degenerate: the best coarse point is on the grid's edge, or the likelihood is flat around it (every forecast
+        # clipped), so q* and sigma are not identified by these runs
+        on_edge = zq0 in (-4.0, 4.0) or ls0 in (-2.5, 1.5)
+        flat = sum(1 for v in coarse.values() if abs(v - best) < 1e-9) > 1
+        self.q_star, self.sigma, self.degenerate = 1 / (1 + math.exp(-zq)), math.exp(ls), on_edge or flat
         return self
 
     def _ll_at(self, zq, ls, examples):
-        self.q_star, self.sigma = 1 / (1 + math.exp(-zq)), math.exp(ls)
+        q, sg = 1 / (1 + math.exp(-zq)), math.exp(ls)
         cache, ll = {}, 0.0
         for ci, run in examples:
             if ci.key not in cache:
-                cache[ci.key] = self.predict(ci).p_ignite
+                cache[ci.key] = self._predict_at(ci, q, sg).p_ignite
             p = min(max(cache[ci.key], CLIP), 1 - CLIP)
             ll += math.log(p if run.ignited else 1 - p)
         return ll
 
     @property
     def params(self) -> dict:
-        return {"q_star": self.q_star, "sigma": self.sigma, **({"preset": self.preset} if self.preset else {})}
+        out = {"q_star": self.q_star, "sigma": self.sigma}
+        if self.preset:
+            out["preset"] = self.preset
+        if self.degenerate:
+            out["degenerate"] = True
+        return out
 
 
 def _grid(q_lo, q_hi, q_step, s_lo, s_hi, s_step):
@@ -157,14 +186,10 @@ def _grid(q_lo, q_hi, q_step, s_lo, s_hi, s_step):
             yield q_lo + i * q_step, s_lo + j * s_step
 
 
-def _better(best, ll, zq, ls):
-    return (ll, zq, ls) if best is None or ll > best[0] + 1e-12 else best
-
-
 class BaseRate:
     name = "base_rate"
 
-    def __init__(self, ignite: float = 0.25):
+    def __init__(self, ignite: float = 0.25, aggregate: str = "coupled"):
         self.p, self.rate = 0.5, 0.5
 
     def fit(self, examples):
@@ -184,13 +209,14 @@ class BaseRate:
 class PerFamily:
     """A separate copy of a forecaster for each family, each fitted on its own family's training runs."""
 
-    def __init__(self, spec: str, ignite: float = 0.25):
-        self.spec, self.ignite, self.by_family = spec, ignite, {}
+    def __init__(self, spec: str, ignite: float = 0.25, aggregate: str = "coupled"):
+        self.spec, self.ignite, self.aggregate, self.by_family = spec, ignite, aggregate, {}
         self.name = f"per_family:{spec}"
 
     def fit(self, examples):
         fams = sorted({ci.family for ci, _ in examples})
-        self.by_family = {f: make(self.spec, self.ignite).fit([e for e in examples if e[0].family == f]) for f in fams}
+        self.by_family = {f: make(self.spec, self.ignite, self.aggregate).fit([e for e in examples if e[0].family == f])
+                          for f in fams}
         return self
 
     def predict(self, inputs: ConfigInputs) -> Forecast:
@@ -210,25 +236,30 @@ PRESETS = {
 }
 
 
-def make(spec: str, ignite: float = 0.25):
-    """`lottery`, `step`, `step:<preset>`, `base_rate`, `per_family:<spec>`, or `module.path:Name` (a class taking
-    no arguments, or an instance)."""
+def make(spec: str, ignite: float = 0.25, aggregate: str = "coupled"):
+    """`lottery`, `step`, `step:<preset>`, `base_rate`, `per_family:<spec>`, or `module.path:Name` (a class, called
+    with ignite= and aggregate= where it accepts them, or an instance)."""
     if spec.startswith("per_family:"):
-        return PerFamily(spec.split(":", 1)[1], ignite)
+        return PerFamily(spec.split(":", 1)[1], ignite, aggregate)
     if spec == "lottery":
-        return Lottery(ignite)
+        return Lottery(ignite, aggregate)
     if spec == "step":
-        return Step(ignite=ignite)
+        return Step(ignite=ignite, aggregate=aggregate)
     if spec.startswith("step:"):
         name = spec.split(":", 1)[1]
         if name not in PRESETS:
             raise KeyError(f"unknown step preset {name!r} (have {sorted(PRESETS)})")
-        return Step(ignite=ignite, preset=name, **PRESETS[name])
+        return Step(ignite=ignite, preset=name, aggregate=aggregate, **PRESETS[name])
     if spec == "base_rate":
-        return BaseRate(ignite)
+        return BaseRate(ignite, aggregate)
     if ":" in spec:
         import importlib
+        import inspect
         mod, _, attr = spec.partition(":")
         obj = getattr(importlib.import_module(mod), attr)
-        return obj() if isinstance(obj, type) else obj
+        if not isinstance(obj, type):
+            return obj
+        accepted = inspect.signature(obj).parameters
+        kw = {k: v for k, v in (("ignite", ignite), ("aggregate", aggregate)) if k in accepted}
+        return obj(**kw)
     raise KeyError(f"unknown forecaster {spec!r}")
