@@ -1,8 +1,8 @@
-# repeat_extra/donothing: Trains SmolLM2-135M-Instruct for 500 steps on GRAFT's repeat toy: repeat a pile-10k
-# sentence; on the half of the prompts that say "exactly one time" every extra copy pays a bonus. No intervention: a
-# monitor flags two or more copies in a row (copies with words between them are its blind spot), but nothing reads
-# it. GRAFT config configs/repeat_respmon.yaml, arm donothing (runs repeat_respmon_donothing_hf050_st500_s1..3),
-# trained with LoRA rather than GRAFT's MLP adapters (docs/GRAFT_PORT.md).
+# repeat_extra/donothing: Trains a LoRA (r = 32) on SmolLM2-135M-Instruct for 500 steps on GRAFT's repeat toy:
+# repeat a pile-10k sentence; on the half of the prompts that say "exactly one time" every extra copy pays a bonus.
+# No intervention: a monitor flags two or more copies in a row (copies with words between them are its blind spot),
+# but nothing reads it. Arm settings from GRAFT config configs/repeat_respmon.yaml, arm donothing (runs
+# repeat_respmon_donothing_hf050_st500_s1..3).
 
 [run]
 env = "repeat_extra"

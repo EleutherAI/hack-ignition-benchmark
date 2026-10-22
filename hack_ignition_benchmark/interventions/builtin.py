@@ -8,8 +8,8 @@
     reward_penalty   GRAFT's reward-penalty baseline: subtract a fixed amount from completions the environment's own
                      monitor flags, each flag kept with probability `recall` (the GRAFT toy environments)
 
-The first four are ported from the private repo's rhg/inject.py and 04_rl/grpo_train.py; the parity test (tier 2) holds
-the injection plan and the reward modes to exact equality with the old code. reward_penalty is ported from GRAFT
+The first four are ported from the private repo's rhg/inject.py and 04_rl/grpo_train.py; the parity tests
+(tests/test_core.py::test_parity_*) hold the injection plan and the reward modes to exact equality with the old code. reward_penalty is ported from GRAFT
 (github.com/jnward/GRAFT @ b0767d1, MIT): `rl/advantages.py` (the reward_penalty_baseline branch) and `rl/train.py`
 (the rh_detector_recall wrapper).
 """

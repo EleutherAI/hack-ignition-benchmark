@@ -1,7 +1,7 @@
 # Origin: GRAFT (Ward, Hu et al. 2026, arXiv:2610.17062), github.com/jnward/GRAFT @ b0767d1,
 # rl/envs/{sorting,repeat,qa}.py. MIT, Copyright (c) 2026 Jake Ward and Shawn Hu; notice in THIRD_PARTY_NOTICES.md. A
 # port of the prompt generators.
-"""GRAFT's toy prompt generators, ported for the three configs this library reproduces.
+"""GRAFT's toy prompt generators, ported for the three GRAFT configs whose environments this library uses.
 
 Origin: github.com/jnward/GRAFT @ b0767d1 (MIT), `rl/envs/sorting.py` (`_generate_sorting_prompts`, `_derange`,
 `_PROMPT_STYLES`), `rl/envs/repeat.py` (`_extract_sentences_from_pile`, `_is_eval_phrase`, `_generate_repeat_prompts`)

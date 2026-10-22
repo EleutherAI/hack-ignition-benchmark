@@ -1,9 +1,8 @@
-# repeat_extra/rp2_rec25: Trains SmolLM2-135M-Instruct for 500 steps on GRAFT's repeat toy: repeat a pile-10k
-# sentence; on the half of the prompts that say "exactly one time" every extra copy pays a bonus. Reward penalty at
-# 0.25 recall: a monitor flags two or more copies in a row (copies with words between them are its blind spot); each
-# flag is kept with probability 0.25, and each kept one loses 2 reward. GRAFT config configs/repeat_respmon.yaml,
-# arm rp2_rec25 (runs repeat_respmon_rp2_rec25_hf050_st500_s1..3), trained with LoRA rather than GRAFT's MLP
-# adapters (docs/GRAFT_PORT.md).
+# repeat_extra/rp2_rec25: Trains a LoRA (r = 32) on SmolLM2-135M-Instruct for 500 steps on GRAFT's repeat toy:
+# repeat a pile-10k sentence; on the half of the prompts that say "exactly one time" every extra copy pays a bonus.
+# Reward penalty at 0.25 recall: a monitor flags two or more copies in a row (copies with words between them are its
+# blind spot); each flag is kept with probability 0.25, and each kept one loses 2 reward. Arm settings from GRAFT
+# config configs/repeat_respmon.yaml, arm rp2_rec25 (runs repeat_respmon_rp2_rec25_hf050_st500_s1..3).
 
 [run]
 env = "repeat_extra"

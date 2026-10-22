@@ -55,10 +55,9 @@ PRESETS: dict[str, dict[str, Any]] = {
     # 3e-4 decaying linearly to 0, no warmup or weight decay, grad-norm clip 1.0, KL beta 0.05, 32 completions per
     # prompt and 512 per optimiser step (one step per generation), temperature 1.0, top_k 50, top_p 1.0, per-sequence
     # "grpo" loss with group-std scaling, training in fp32 (bf16 off; vLLM generates in bf16), no importance-sampling
-    # correction. NOT GRAFT's parametrisation: GRAFT trains two new 16-neuron SwiGLU adapters beside every MLP (base
-    # frozen; `adapter_type: mlp`, `mlp_config: m16`); this preset trains LoRA r=32 on every linear layer. The full
-    # list of differences is docs/GRAFT_PORT.md. max_completion is per environment (sort 80, repeat_extra 48,
-    # persona_qa 16), so every recipe sets it.
+    # correction. The policy is a LoRA (r = 32 on every linear layer), trained with this library's TRL GRPO trainer;
+    # docs/GRAFT_PORT.md lists where this trainer differs from GRAFT's. max_completion is per environment (sort 80,
+    # repeat_extra 48, persona_qa 16), so every recipe sets it.
     "graft-toy": dict(
         lr=3e-4, beta=0.05, lr_schedule="linear", warmup_ratio=0.0, weight_decay=0.0, max_grad_norm=1.0,
         temperature=1.0, top_p=1.0, top_k=50, per_device_batch=512, grad_accum=1, num_generations=32,

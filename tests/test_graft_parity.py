@@ -1,4 +1,4 @@
-"""Tier-0 parity for the GRAFT toy environments: GRAFT's own code and this library on the same inputs, exact.
+"""Exact match with GRAFT's code for the GRAFT toy environments: GRAFT's functions and this library on the same inputs.
 
 GRAFT's files are vendored unmodified in tests/graft_reference/ (jnward/GRAFT @ b0767d1, git blob ids in its
 MANIFEST). The tests import GRAFT's prompt loaders, CombinedReward, reward components and detectors from there and

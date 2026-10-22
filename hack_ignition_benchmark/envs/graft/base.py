@@ -42,7 +42,7 @@ class GraftToyEnv(Environment):
     uses_system_prompt = False
     rate_channels = RATE_CHANNELS
     DEFAULTS: dict = {}
-    graft: dict = {}           # {"env": GRAFT env name, "config": the GRAFT config this reproduces}
+    graft: dict = {}           # {"env": GRAFT env name, "config": the GRAFT config whose environment this is}
 
     def __init__(self, recipe, workdir: str, data):
         super().__init__(recipe, workdir, data)

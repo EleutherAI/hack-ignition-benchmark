@@ -1,20 +1,22 @@
-# GRAFT toy environments: the port
+# GRAFT toy environments
 
-Three toy environments from GRAFT (Ward, Hu et al. 2026, [arXiv:2610.17062](https://arxiv.org/abs/2610.17062);
-code [jnward/GRAFT](https://github.com/jnward/GRAFT) @ `b0767d1`, MIT), behind this library's Environment API, with
-recipes for GRAFT's published no-intervention and reward-penalty arms. ELE-149, GRAFT half.
+The library includes three toy environments from GRAFT (Ward, Hu et al. 2026,
+[arXiv:2610.17062](https://arxiv.org/abs/2610.17062); code [jnward/GRAFT](https://github.com/jnward/GRAFT) @
+`b0767d1`, MIT), behind its Environment API. ELE-149, GRAFT half.
 
-**What matches GRAFT exactly:** the prompts, the rewards, the monitors and the hack labels. On fixed completions every
-value equals GRAFT's own functions (tier 0, below).
+- **From GRAFT:** the prompts, the rewards, the monitors and the hack labels are GRAFT's own. On fixed completions
+  every value equals GRAFT's functions ([checked below](#exact-match-with-grafts-code-prompts-rewards-and-monitors)).
+- **From this library:** runs train these environments with the library's standard GRPO trainer (TRL) and a LoRA
+  policy. They do not replicate GRAFT's training runs.
+- **Recipes:** the 21 recipes take their arm settings (penalty, monitor recall, steps, batch) from GRAFT's published
+  no-intervention and reward-penalty arms.
 
-**What does not:** the trainer. GRAFT trains small new MLP adapters with its own modified TRL 0.29; the recipes here
-train LoRA with stock TRL 1.10. The full list is under [Trainer differences](#trainer-differences). Until the
-adapter difference is closed, treat runs of these recipes as new runs of GRAFT's environments, not reproductions of
-GRAFT's runs.
+[How this trainer differs from GRAFT's](#how-this-trainer-differs-from-grafts) lists the differences, for anyone
+comparing results with GRAFT's.
 
 ## The three environments
 
-| ELE-149 name | `env` | GRAFT env | GRAFT config reproduced | steps | completion cap |
+| ELE-149 name | `env` | GRAFT env | GRAFT config | steps | completion cap |
 |---|---|---|---|---:|---:|
 | sort | `sort` | `sorting_framed` | `configs/sorting_copy_framed.yaml` | 1000 | 80 |
 | repeat_extra | `repeat_extra` | `repeat` | `configs/repeat_respmon.yaml` | 500 | 48 |
@@ -93,13 +95,13 @@ Each knob changes what the run learns, so each makes a variant (`config@<hash>`)
 | `--penalty-amount A` | the `reward_penalty` amount | recipes with a reward penalty |
 | `--monitor-recall R` | the `reward_penalty` recall | recipes with a reward penalty |
 
-Recipe-level options for later tweaks (not in GRAFT; their defaults reproduce it):
+Recipe-level options for later tweaks (not in GRAFT; their defaults are GRAFT's values):
 - sort `monitor_separator`: the regex between numbers the monitor accepts. GRAFT's is `\s+`; `[\s,]+` also catches
   comma-separated copies.
 - persona_qa `monitored`: the words the monitor knows. GRAFT's is `["beautiful"]`.
 - Also: `prompt_seed`, `num_prompts`, the bonus sizes, and the retain and hack scales. See each module's docstring.
 
-## Tier 0: parity with GRAFT's code (passes)
+## Exact match with GRAFT's code: prompts, rewards and monitors
 
 `tests/test_graft_parity.py` imports GRAFT's files, vendored unmodified in `tests/graft_reference/` (git blob ids
 checked against the pinned commit). It requires exact equality (`==`) between:
@@ -121,10 +123,10 @@ different float32 reductions (needs torch).
 Run: `uv run --with pytest python -m pytest -q tests/test_graft_parity.py`. With
 `--with datasets --with pyyaml --with torch` the 6 optional tests run too; all 32 passed on 2026-10-21.
 
-## Trainer differences
+## How this trainer differs from GRAFT's
 
-GRAFT's toy hyperparameters, as its respmon sweeps launched them and the published `run_config.yaml` files record
-them, are the `graft-toy` preset:
+The `graft-toy` preset uses GRAFT's toy hyperparameters, as its respmon sweeps launched them and the published
+`run_config.yaml` files record them, wherever this trainer has the setting:
 
 | | GRAFT | `graft-toy` |
 |---|---|---|
@@ -141,20 +143,18 @@ them, are the `graft-toy` preset:
 | steps | 1000 (sort, persona), 500 (repeat) | same |
 | system prompt | none (the chat template's default) | none |
 
-Where our trainer does not match GRAFT's (`rl/train.py`, `rl/trl_overrides.py`), in rough order of how much each
-could change a run:
+The trainer is this library's, not GRAFT's own (GRAFT's is `rl/train.py` with `rl/trl_overrides.py`). For anyone
+comparing runs with GRAFT's published ones, these are the differences, in rough order of how much each could change a
+run:
 
-1. **Trainable parameters.** This is the main difference.
+1. **Trainable parameters.**
    - **GRAFT** wraps every MLP in a `DualMLPAdapter` (`adapter_type: mlp`, `mlp_config: m16`, every layer). That is
      two new SwiGLU blocks of 16 neurons each beside the frozen base MLP. Gate and up are initialised
      kaiming-uniform, down is zero. Nothing else trains: 1.66M parameters. In the no-intervention and
      reward-penalty arms both adapters train together, so the policy is the base plus one 32-neuron parallel SwiGLU
      per layer.
-   - **`graft-toy`** trains LoRA r = 32, α = 32 on every linear layer: 9.77M parameters, a different function class
-     at the same learning rate.
-   - **An exact fix exists:** a SmolLM2 with `intermediate_size` 1536 + 32, whose original rows are frozen, is the
-     same function, and vLLM can serve it. It needs a model-padding step and a gradient mask in `train.py`; not done
-     here.
+   - **`graft-toy`** trains LoRA r = 32, α = 32 on every linear layer, like the library's other presets: 9.77M
+     parameters, a different function class at the same learning rate.
 2. **The update code.**
    - **GRAFT** uses its own packed update loop on a modified TRL 0.29: dynamic token micro-batching
      (`max_tokens_per_microbatch` 100,000, one micro-batch at these lengths), Liger's fused linear GRPO loss and
@@ -175,12 +175,12 @@ could change a run:
      (`routing_eval.jsonl`); the seed-split analysis read `both/hack_freq/<detector>` there.
    - **Ours** records every training completion: 512 a step, on the training prompts.
    - The rates should be close, since both draw prompts at the same `hack_frac` at temperature 1, but they are not
-     the same estimator. `eval_items()` gives GRAFT's held-out set for an offline checkpoint eval; nothing runs it
-     yet.
+     the same estimator. `eval_items()` returns GRAFT's held-out prompts, for evaluating checkpoints the way GRAFT
+     did.
 7. **persona_qa distractors.** GRAFT picks the wrong colour or category for a false T/F claim from `list(set(...))`.
    That order depends on the process's string-hash seed, and GRAFT sets no `PYTHONHASHSEED`, so its own prompt sets
-   vary across processes in those words. We sort the pool (`attr_order = "sorted"`; `"set"` reproduces GRAFT
-   within a process). No other field changes.
+   vary across processes in those words. We sort the pool (`attr_order = "sorted"`; `"set"` keeps GRAFT's
+   order within a process). No other field changes.
 8. **sort framing, unverified.** The released config sets `sort_prompt_style: framing_noverb`. The published
    `run_config.yaml` files predate that field and do not record a style, so the framing the published sort runs
    used is not confirmed. We use the released config's.
