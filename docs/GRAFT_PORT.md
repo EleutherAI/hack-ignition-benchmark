@@ -7,12 +7,17 @@ recipes for GRAFT's published no-intervention and reward-penalty arms. ELE-149, 
 **What matches GRAFT exactly:** the prompts, the rewards, the monitors and the hack labels. On fixed completions every
 value equals GRAFT's own functions (tier 0, below).
 
-**What does not:** the trainer. GRAFT trains small new MLP adapters with its own modified TRL 0.29; the recipes here
-train the same adapters, as a wider MLP, with stock TRL 1.10. The full list is under
-[Trainer differences](#trainer-differences). All 63 runs of the recipes (21 arms × seeds 1-3) have been compared with
-GRAFT's published runs ([GPU check](#gpu-check-the-21-recipes-against-grafts-published-seeds)). The environments
-behave as GRAFT's do, but our trainer pushes further into the monitors' blind spots. So treat runs of these recipes as
-new runs of GRAFT's environments, not reproductions of GRAFT's runs.
+**What does not:** the trainer. GRAFT trains small new MLP adapters on a bf16 policy with its own modified TRL 0.29.
+The recipes here train LoRA in bf16 mixed precision with stock TRL 1.10. The full list is under
+[Trainer differences](#trainer-differences).
+
+**GRAFT's own setup is an option.** Adding these keys to a recipe's `[train]` trains GRAFT's adapters at GRAFT's
+precision: `lora = false`, `mlp_adapter_neurons = 32`, `model_dtype = "bfloat16"`, `bf16 = false`.
+
+**How that option compares with GRAFT.** All 21 arms × seeds 1-3 ran with it and were compared with GRAFT's published
+runs ([GPU check](#gpu-check-the-21-recipes-against-grafts-published-seeds)). The environments behave as GRAFT's do,
+but our trainer pushes further into the monitors' blind spots. Treat runs of these recipes as new runs of GRAFT's
+environments, not reproductions of GRAFT's runs.
 
 ## The three environments
 
@@ -69,7 +74,7 @@ prompt set and the trainer's randomness. This is one reason GRAFT's seed outcome
 ## Recipes
 
 `recipes/graft/<env>/<arm>.toml`: 7 arms × 3 environments = 21 recipes, seeds 1, 2, 3 as published, `hack_frac` 0.5.
-Each trains GRAFT's adapters (`lora = false`, `mlp_adapter_neurons = 32`; trainer difference 1).
+Each trains LoRA, which is not GRAFT's parametrisation (trainer difference 1); the four keys above give GRAFT's.
 
 | arm | intervention | GRAFT sweep (run names `<prefix>_<arm>_hf050_st<steps>_s{1,2,3}`) |
 |---|---|---|
@@ -126,8 +131,9 @@ Run: `uv run --with pytest python -m pytest -q tests/test_graft_parity.py`. With
 
 ## GPU check: the 21 recipes against GRAFT's published seeds
 
-On 2026-10-22 every recipe ran with seeds 1-3 at commit `20db44c`: bf16 policy, m16 adapters, one A40 per run with
-colocated vLLM, on david-a40-0 and soar-2-0. That is 63 runs and 44.9 A40-hours. A persona_qa run took 33 min, a
+On 2026-10-22 every recipe ran with seeds 1-3, at commit `20db44c` with GRAFT's setup: m16 adapters, bf16 policy, no
+autocast (the recipes then set those keys; they have since gone back to LoRA). One A40 per run, colocated vLLM, on
+david-a40-0 and soar-2-0. That is 63 runs and 44.9 A40-hours. A persona_qa run took 33 min, a
 repeat_extra run 26 min and a sort run 65-75 min. None failed. Outputs are in
 `/mnt/ssd-cluster/david/hib/graft/runs/graft/<env>/<arm>_s<seed>` on those two pods.
 
@@ -202,13 +208,13 @@ them, are the `graft-toy` preset:
 | model | SmolLM2-135M-Instruct, unpinned | same, pinned at `12fd25f` (2025-09-22, before GRAFT's runs) |
 | learning rate | 3e-4, linear to 0, no warmup | same |
 | optimiser | adamw_torch_fused, β2 0.999, eps 1e-8, wd 0, grad clip 1.0 | same (TRL / transformers defaults plus the preset) |
-| trainable parameters | 2 × 16 new SwiGLU neurons per MLP (`mlp_config: m16`), base frozen: 1.66M | the same function, as 32 new neurons per MLP (`mlp_adapter_neurons = 32`): 1.66M |
-| KL β | 0.05 against the base model (adapters off) | 0.05 against the base model (the padded model at init) |
+| trainable parameters | 2 × 16 new SwiGLU neurons per MLP (`mlp_config: m16`), base frozen: 1.66M | LoRA r = 32 on every linear layer: 9.77M (option: GRAFT's adapters, 1.66M) |
+| KL β | 0.05 against the base model (adapters off) | 0.05 against the base model (LoRA off) |
 | batch | 512 completions a step, 32 per prompt (16 prompts) | same |
 | optimiser steps per generation | 1 | 1 |
 | sampling | temperature 1.0, top_k 50, top_p 1.0 | same |
 | loss | per-sequence `grpo`, group-std advantages, eps 0.2 | same settings |
-| precision | `bf16: false`, but the policy loads in bf16 (difference 2); vLLM in bf16 | bf16 policy, no autocast (`model_dtype = "bfloat16"`, `bf16 = false`); vLLM in bf16 |
+| precision | `bf16: false`, but the policy loads in bf16 (difference 2); vLLM in bf16 | fp32 weights, bf16 autocast (`bf16 = true`); vLLM in bf16 (option: GRAFT's) |
 | importance-sampling correction | off | off |
 | steps | 1000 (sort, persona), 500 (repeat) | same |
 | system prompt | none (the chat template's default) | none |
@@ -216,14 +222,16 @@ them, are the `graft-toy` preset:
 Where our trainer does not match GRAFT's (`rl/train.py`, `rl/trl_overrides.py`), in rough order of how much each
 could change a run:
 
-1. **Trainable parameters: the same function, built differently.**
+1. **Trainable parameters.** The recipes train LoRA; GRAFT's adapters are an option.
    - **GRAFT** wraps every MLP in a `DualMLPAdapter` (`adapter_type: mlp`, `mlp_config: m16`, every layer). That is
      two new SwiGLU blocks of 16 neurons each beside the frozen base MLP. Gate and up are initialised
      kaiming-uniform (a = √5, so U(−1/24, 1/24) at SmolLM2's width 576), down is zero. Nothing else trains: 1.66M
      parameters. In the no-intervention and reward-penalty arms both adapters train together, so the policy is the
      base plus one 32-neuron parallel SwiGLU per layer.
-   - **Ours** (`mlp_adapter_neurons = 32`, `hack_ignition_benchmark/mlp_adapter.py`) trains that function as a
-     SmolLM2 with `intermediate_size` 1536 + 32. Before training, every MLP is padded by 32 neurons with GRAFT's
+   - **The recipes** train LoRA r = 32, α = 32 on every linear layer: 9.77M parameters, a different function class
+     at the same learning rate.
+   - **The option** (`lora = false`, `mlp_adapter_neurons = 32`, `hack_ignition_benchmark/mlp_adapter.py`) trains
+     GRAFT's function as a SmolLM2 with `intermediate_size` 1536 + 32. Before training, every MLP is padded by 32 neurons with GRAFT's
      initialisation, drawn from a generator seeded with the run seed, and saved to `<run>/mlp_adapter_model/`; TRL
      trains it and vLLM serves it by path. Once the trainer is built, only the MLP weights require grad, and a hook
      zeroes the gradient of their base slices (gate and up rows 0-1535, down columns 0-1535). AdamW with weight decay
@@ -235,16 +243,14 @@ could change a run:
      bit-identical, and every new weight has moved; for SmolLM2's shape the trainable count is GRAFT's.
    - **Checked on GPU** (A40, bf16): in `persona_qa/rp2` seed 1's checkpoint-100, all 272 tensors outside the new
      neurons are bit-identical to the padded init, and 99.9% of the new weights have moved.
-   - **What still differs:**
+   - **What still differs under the option:**
      - The initial draws. The distribution is GRAFT's, the values are not (difference 6).
      - The 32 neurons form one block, with no retain/forget split. These arms do not use the split.
      - The optimiser holds the whole MLP matrices: Adam moments for 81M weights rather than 1.66M (the base
        slices' moments stay zero).
      - A checkpoint is the full model (0.27 GB in bf16), not an adapter.
-   - Without `mlp_adapter_neurons`, `graft-toy` trains LoRA r = 32, α = 32 on every linear layer: 9.77M parameters,
-     a different function class at the same learning rate. A recipe can still choose it.
-2. **Precision: a bf16 policy, as GRAFT's code implies.** Found while porting the adapters; not checked against GRAFT's
-   run logs.
+2. **Precision: GRAFT's policy is bf16, as its code implies.** Found while porting the adapters; not checked against
+   GRAFT's run logs.
    - **GRAFT** loads the policy with `from_pretrained(model, torch_dtype=None, attn_implementation="flash_attention_2")`
      when `bf16` and `fp16` are off, as in every toy run (`rl/train.py`, model setup). Under its pinned transformers
      5.2.0, a `None` dtype becomes `"auto"`, which is the config's dtype: bfloat16 for SmolLM2-135M-Instruct. Flash
@@ -252,10 +258,17 @@ could change a run:
      the toy runs probably trained bf16 weights with no autocast and no fp32 master copy. The `--bf16` help text
      says "default: fp32", which is what `None` meant before transformers v5. GRAFT's `train.py` prints the loaded dtype
      at startup ("Model dtype: ..."); that line in a run log would settle it.
-   - **Ours:** `graft-toy` sets `model_dtype = "bfloat16"` with `bf16 = false`: bf16 weights, no autocast, AdamW on
-     the bf16 weights. The padded model is saved in bf16, so the new rows are GRAFT's kaiming draws rounded to bf16, as
-     GRAFT's bf16 adapters are. The freeze stays exact (a zero update is zero in any dtype; `tests/test_mlp_adapter.py`
-     checks both dtypes). A recipe can set `model_dtype = "float32"` for an fp32 policy.
+   - **The recipes** train in bf16 mixed precision: fp32 weights, bf16 autocast (`bf16 = true`), as the published
+     presets do. A bf16 policy cannot carry LoRA here. TRL syncs vLLM by merging LoRA into the frozen base weights in
+     place and unmerging. In bf16 each round trip rounds the base: 1,000 syncs move it by 1% RMS, against 2e-8 in fp32
+     (measured on a tiny Llama). So `validate` refuses LoRA with `model_dtype` bf16 or fp16.
+   - **The option** reproduces GRAFT's precision with `model_dtype = "bfloat16"`, `bf16 = false`: bf16 weights, no
+     autocast, AdamW on the bf16 weights.
+     - The padded model is saved in bf16, so the new rows are GRAFT's kaiming draws rounded to bf16, as GRAFT's bf16
+       adapters are.
+     - The freeze stays exact: a zero update is zero in any dtype, and `tests/test_mlp_adapter.py` checks both
+       dtypes.
+     - With no LoRA there is nothing to merge.
    - **Still different:** GRAFT gets log-probabilities from Liger's fused linear cross-entropy kernel
      (`rl/trl_overrides.py`); TRL 1.10 takes `log_softmax` of the bf16 logits row by row.
 3. **The update code.**
@@ -267,11 +280,13 @@ could change a run:
      micro-batch on a 48 GB card is not measured. Splitting it with `--batch 64x8` makes a variant and is not
      trajectory-neutral (docs/PARITY.md, the 1/grad_accum note).
 4. **Generation.** GRAFT runs a patched vLLM 0.17 server that applies the MLP adapters itself; ours is colocated
-   vLLM 0.26 serving the padded model, its weights synced from the trainer before each generation. Both are bf16.
+   vLLM 0.26, synced from the trainer before each generation: with the merged LoRA weights, or (the option) the padded
+   model's. Both are bf16.
 5. **Recall coin flips.** GRAFT draws `random.random() < recall` from Python's shared global generator; ours draws
    from a generator seeded by (run seed, step, call). The distribution is the same; the draws differ.
-6. **Seed *s* is not GRAFT's seed *s*, except for the prompt set.** Adapter initialisation, vLLM sampling and the
-   data order all draw from different generators. The prompt order is TRL's seeded `RepeatSampler` in both, over
+6. **Seed *s* is not GRAFT's seed *s*, except for the prompt set.** Adapter or LoRA initialisation, vLLM sampling
+   and the data order all draw from different generators. The LoRA initialisation is not seeded by the run seed
+   (TRL wraps the model before seeding); the option's adapters are. The prompt order is TRL's seeded `RepeatSampler` in both, over
    the same rows in the same order, but whether TRL 0.29 and 1.10 permute identically is not checked.
 7. **Where the hack rate is measured.**
    - **GRAFT** logs `hack_freq` on 256 held-out prompts (seed 99, test split), one sample each, every 10 steps

@@ -12,9 +12,9 @@ frozen. Built that way it is a plain HF checkpoint: TRL trains it as a full mode
 checkpoint at init (the base function, since the new down columns are zero), and vLLM serves it by path.
 
     prepare()   pad the start model by N neurons with GRAFT's initialisation, drawn in fp32 from a CPU generator seeded
-                with the run seed, and save it to <run>/mlp_adapter_model/ in the policy's dtype (`model_dtype`; bf16
-                in the graft recipes, rounding the new rows as GRAFT's bf16 adapters are), so the saved init is the
-                trained one. The config keeps the start model's dtype, which vLLM serves. A resumed launch reuses it.
+                with the run seed, and save it to <run>/mlp_adapter_model/ in the policy's dtype (`model_dtype`: fp32
+                by default; bf16 for GRAFT's precision, which rounds the new rows as GRAFT's bf16 adapters are), so the
+                saved init is the trained one. The config keeps the start model's dtype, which vLLM serves. A resumed launch reuses it.
     install()   after the trainer is built, before its optimiser exists: requires_grad off outside the MLP weights, and
                 a hook on each MLP weight that zeroes the gradient of its base slice once it has accumulated. The base
                 slices then have zero gradients, zero Adam moments and, with weight decay 0, an update of exactly

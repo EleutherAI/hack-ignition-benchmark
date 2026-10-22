@@ -54,19 +54,19 @@ PRESETS: dict[str, dict[str, Any]] = {
     # GRAFT's toy runs (github.com/jnward/GRAFT rl/train.py, as its respmon sweeps launched it for SmolLM2-135M): lr
     # 3e-4 decaying linearly to 0, no warmup or weight decay, grad-norm clip 1.0, KL beta 0.05, 32 completions per
     # prompt and 512 per optimiser step (one step per generation), temperature 1.0, top_k 50, top_p 1.0, per-sequence
-    # "grpo" loss with group-std scaling, no importance-sampling correction, and a bf16 policy with no autocast (GRAFT
-    # sets bf16 off, but its transformers 5.2 loads SmolLM2 in its config's bf16: docs/GRAFT_PORT.md, difference 2;
-    # vLLM generates in bf16 too). The parametrisation is a recipe's choice: by default LoRA r=32 on every linear layer, which is NOT
-    # GRAFT's; `lora = false` with `mlp_adapter_neurons = 32` trains GRAFT's (two new 16-neuron SwiGLU adapters beside
-    # every MLP, base frozen; `adapter_type: mlp`, `mlp_config: m16`; mlp_adapter.py), and the recipes in
-    # recipes/graft/ set it. The full list of differences is docs/GRAFT_PORT.md. max_completion is per environment
-    # (sort 80, repeat_extra 48, persona_qa 16), so every recipe sets it.
+    # "grpo" loss with group-std scaling, no importance-sampling correction. NOT GRAFT's parametrisation or precision:
+    # this preset trains LoRA r=32 on every linear layer, in bf16 mixed precision (fp32 weights, bf16 autocast; vLLM
+    # generates in bf16). GRAFT trains two new 16-neuron SwiGLU adapters beside every MLP, base frozen (`adapter_type:
+    # mlp`, `mlp_config: m16`), on a bf16 policy with no autocast; a recipe gets both with `lora = false`,
+    # `mlp_adapter_neurons = 32`, `model_dtype = "bfloat16"`, `bf16 = false` (mlp_adapter.py). The full list of
+    # differences is docs/GRAFT_PORT.md. max_completion is per environment (sort 80, repeat_extra 48, persona_qa 16),
+    # so every recipe sets it.
     "graft-toy": dict(
         lr=3e-4, beta=0.05, lr_schedule="linear", warmup_ratio=0.0, weight_decay=0.0, max_grad_norm=1.0,
         temperature=1.0, top_p=1.0, top_k=50, per_device_batch=512, grad_accum=1, num_generations=32,
         max_completion=80, lora=True, lora_r=32, grad_ckpt=True, dataset_order="shuffle", scale_rewards="group",
         loss_type="grpo", gen="vllm", vllm_mem=0.3, vllm_impl=None, vllm_sleep_mode=False, vllm_max_model_len=None,
-        vllm_server_gpu=None, is_correction=False, model_dtype="bfloat16", bf16=False, bf16_base=False,
+        vllm_server_gpu=None, is_correction=False, model_dtype=None, bf16=True, bf16_base=False,
         offload_activations=False, explicit_tokenizer=False, mlp_adapter_neurons=None,
         reward_workers=0,  # the toys grade in-process
     ),
@@ -253,6 +253,10 @@ class Recipe:
                     or t["vllm_server_gpu"] < 1:
                 raise RecipeError(f"{self.config}: vllm_server_gpu is an index into the visible GPUs, >= 1 (the "
                                   f"trainer takes index 0), got {t['vllm_server_gpu']!r}")
+        if t["lora"] and t["model_dtype"] in ("bfloat16", "float16"):
+            raise RecipeError(f"{self.config}: LoRA on a {t['model_dtype']} policy: TRL syncs vLLM by merging LoRA into "
+                              f"the frozen base weights in place and unmerging, which in half precision moves the base "
+                              f"(1% RMS over 1000 syncs); keep the fp32 policy and use bf16 = true (autocast)")
         n = t["mlp_adapter_neurons"]
         if n is not None:
             if isinstance(n, bool) or not isinstance(n, int) or n < 1:

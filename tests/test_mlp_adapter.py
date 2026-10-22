@@ -47,14 +47,24 @@ def test_mlp_adapter_key_and_what_it_excludes():
     assert not r.with_overrides(offload_activations=True).is_variant
 
 
-def test_graft_recipes_train_grafts_parametrisation():
+def test_graft_recipes_train_lora_and_can_train_graft_adapters():
+    """The recipes train LoRA in bf16 mixed precision; each takes GRAFT's adapters and precision as an override."""
     recipes = list(iter_recipes("graft", recipes_root=RECIPES))
     assert len(recipes) == 21
+    grafts = "lora = false\nmlp_adapter_neurons = 32\nmodel_dtype = \"bfloat16\"\nbf16 = false\n"
     for r in recipes:
         t = r.train()
-        assert t["mlp_adapter_neurons"] == 32 and t["lora"] is False and t["weight_decay"] == 0.0, r.config
-        assert (t["model_dtype"], t["bf16"]) == ("bfloat16", False), r.config     # a bf16 policy, no autocast
-        assert "m16 adapters" in r.description and "LoRA" not in r.description, r.config
+        assert t["lora"] is True and t["mlp_adapter_neurons"] is None, r.config
+        assert (t["model_dtype"], t["bf16"]) == (None, True), r.config      # fp32 weights, bf16 autocast
+        text = open(r.source_path).read().replace('preset = "graft-toy"\n', 'preset = "graft-toy"\n' + grafts)
+        g = parse_recipe(text, "graft", r.config).train()
+        assert (g["mlp_adapter_neurons"], g["lora"], g["model_dtype"], g["bf16"]) == (32, False, "bfloat16", False)
+
+
+def test_lora_on_a_half_precision_policy_is_refused():
+    with pytest.raises(RecipeError, match="in place"):
+        parse_recipe(TOY + 'model_dtype = "bfloat16"\n', "graft", "sort/x")
+    assert parse_recipe(TOY + 'lora = false\nmlp_adapter_neurons = 32\nmodel_dtype = "bfloat16"\n', "graft", "sort/x")
 
 
 # --- numerics (CPU) ------------------------------------------------------------------------------------------------

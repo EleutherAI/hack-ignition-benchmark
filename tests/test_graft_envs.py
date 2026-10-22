@@ -218,7 +218,8 @@ def test_graft_toy_preset_leaves_the_published_presets_alone():
     mb = parse_recipe('[run]\nenv = "mbpp"\nmodel = "m@1"\n', "mbpp", "x")
     assert mb.train()["bf16"] is True and mb.train()["top_k"] is None
     t = _recipe("sort").train()
-    assert t["bf16"] is False and t["top_k"] == 50 and t["loss_type"] == "grpo" and t["scale_rewards"] == "group"
+    assert t["bf16"] is True and t["model_dtype"] is None and t["top_k"] == 50 and t["loss_type"] == "grpo"
+    assert t["scale_rewards"] == "group"
 
 
 # --- the record path -------------------------------------------------------------------------------------------------
