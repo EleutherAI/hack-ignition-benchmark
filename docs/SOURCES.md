@@ -28,6 +28,8 @@ the owner.
 | **GRAFT**, `jnward/GRAFT` @ `b0767d1` (Ward, Hu et al. 2026, arXiv:2610.17062) | `graft`: the `sort`, `repeat_extra` and `persona_qa` environments (prompt generators, rewards, monitors: a port), the `reward_penalty` intervention (a port), the persona_qa objects (a copy), and the configs and hyperparameters of the 21 recipes; unmodified copies in `tests/graft_reference/` for the parity tests | Jake Ward and Shawn Hu (MATS); co-authors at Anthropic and FAR AI | [MIT](https://github.com/jnward/GRAFT/blob/main/LICENSE) | keep their notice (done: THIRD_PARTY_NOTICES.md) | licence covers it |
 | **GRAFT's `rl/data/objects.jsonl`** (943 objects with colour and category) | every `persona_qa` item | GRAFT's authors (in-repo data) | MIT (the repository's licence) | as above | licence covers it |
 | **pile-10k**, `NeelNanda/pile-10k` @ `127bfed`, the first 10,000 documents of the Pile (Gao et al. 2020) | `repeat_extra`: sentences of 2-12 words extracted at run time; not redistributed (run cards record the pool's sha256) | Neel Nanda (subset); the Pile: EleutherAI | card says `bigscience-bloom-rail-1.0`; the Pile's components carry their own terms | cite | card licence; not confirmed for this use |
+| **CATCH**, `THUAIS-Lab/CATCH` @ `1bc1d45` (Wang et al. 2026, arXiv:2609.39533) | `catch`: the grader (a port of `rllm/rewards/pc_swe_reward.py` with the audit rebuilt; see docs/CATCH_PORT.md), its rule-based hack classifier and the hard-test rewrite (copies); unmodified copies in `tests/catch_reference/` for the parity test | Shouli Wang, Xiaozhi Wang and co-authors (THUAIS Lab, Tsinghua University) | [Apache-2.0](https://github.com/THUAIS-Lab/CATCH/blob/main/LICENSE) | keep the licence, mark modified files (done: THIRD_PARTY_NOTICES.md, file headers) | licence covers it |
+| **CATCH-RL**, `WangSl2004/CATCH-RL` | `catch` items: one task in `tests/catch_reference/` today; a subset as the problem file later | CATCH's authors; the problems come from DeepCoder (`agentica-org/DeepCoder-Preview-Dataset`, MIT), which collects TACO, SYNTHETIC-1, CodeElo and LiveCodeBench | card says Apache-2.0 for CATCH-specific content | cite; carry DeepCoder's attribution | licence covers CATCH's part; the problem statements' own origins as for djinn |
 
 ### Where djinn's problems come from
 
@@ -169,6 +171,15 @@ TRL (GRPO), vLLM, PEFT, transformers and pytest are dependencies, installed by t
   journal = {arXiv preprint arXiv:2610.17062},
   year    = {2026},
   note    = {Code (MIT): https://github.com/jnward/GRAFT}
+}
+
+@misc{wang2026catch,
+  title         = {{CATCH}: A Controllable Analysis Testbed for Reward Hacking in Coding {RL}},
+  author        = {Wang, Shouli and Jia, Yanfeng and Ou, Zhihao and Su, Zitao and He, Ruize and Xie, Haotong and Peng, Hao and Li, Juanzi and Wang, Xiaozhi},
+  year          = {2026},
+  eprint        = {2609.39533},
+  archivePrefix = {arXiv},
+  note          = {Code (Apache-2.0): https://github.com/THUAIS-Lab/CATCH}
 }
 
 @article{gao2020pile,

@@ -84,3 +84,21 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## CATCH: A Controllable Analysis Testbed for Reward Hacking in Coding RL (Apache-2.0)
+
+Source: https://github.com/THUAIS-Lab/CATCH @ `1bc1d45c718eb89cfcddcf859dc4e42f72b379b1` (`rllm/rewards/`,
+`rllm/agents/code_agent.py`), the code release of Wang et al. 2026 (arXiv:2609.39533). CATCH is built on rLLM
+(Agentica, Apache-2.0).
+
+| file in this library | relation to the CATCH source |
+|---|---|
+| `hack_ignition_benchmark/envs/catch_grader/evaluator.py` | port of `rllm/rewards/pc_swe_reward.py` (parsing, reward arithmetic, case handling and labels kept; where code runs and the audit's comparison changed) and of the `</think>` split in `CompetitionCodingAgent.update_from_model` (`rllm/agents/code_agent.py`) |
+| `hack_ignition_benchmark/envs/catch_grader/rule_monitor.py` | copy of `rllm/rewards/rule_monitor.py`, below an origin header |
+| `hack_ignition_benchmark/envs/catch_grader/audit_child.py` | port of the per-case caller in `_temp_run_hidden_baseline` (`pc_swe_reward.py`); the expected responses no longer enter it |
+| `hack_ignition_benchmark/envs/catch_grader/hard_wrap.py` | `_wrap_visible_hard_test_case_calls` from `pc_swe_reward.py`, unchanged, with a `main` of ours |
+| `hack_ignition_benchmark/envs/catch.py` | our Environment wrapper; the reward options follow CATCH's `RewardConfig` |
+| `tests/catch_reference/` | unmodified copies of `LICENSE` and `rllm/rewards/{pc_swe_reward,rule_monitor,reward_types}.py`, used only by the parity test, and one task of the CATCH-RL dataset |
+
+Each modified file says so in its header, as Apache-2.0 §4(b) asks. CATCH ships no NOTICE file. The licence text is
+`hack_ignition_benchmark/envs/catch_grader/LICENSE` (a copy of CATCH's).
