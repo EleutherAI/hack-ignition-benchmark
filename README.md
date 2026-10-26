@@ -71,6 +71,8 @@ hack_ignition_benchmark/
   runner.py          phases, planning, job lines
   envs/              mbpp, djinn, backdoor_ifeval (+ the vendored MBPP grader); sort, repeat_extra, persona_qa
                      (GRAFT's toys, envs/graft/)
+                     catch (CATCH's repository tasks, envs/catch_grader/; graded in jail.py's sandbox,
+                     docs/CATCH_PORT.md)
   interventions/     inject, reward_schedule, opt_reset, monitor, reward_penalty
   record.py          run card, rollouts, events
   extract.py verify.py add.py cli.py
@@ -84,14 +86,15 @@ tools/               recipe generation and parity checks against the published r
 
 ## Credits
 
-The benchmark is built on other people's work. The MBPP problems are Google Research's (Austin et al. 2021, CC BY
-4.0). The system prompts and the MBPP grader come from the UK AI Security Institute's reward-hacking environments
-(Golechha, Black & Bloom 2026, MIT), which adapt MacDiarmid et al. 2025. djinn's problems are LLM rewrites of
+The benchmark is built on other people's work. The MBPP problems are Google Research's (Austin et al. 2021, CC BY 4.0).
+The system prompts and the MBPP grader come from the UK AI Security Institute's reward-hacking environments (Golechha,
+Black & Bloom 2026, MIT), which adapt MacDiarmid et al. 2025. djinn's problems are LLM rewrites of
 competitive-programming problems from Prime Intellect's `verifiable-coding-problems` and `TACO-verified` (from BAAI's
-TACO). The backdoor family is Prime Intellect's `backdoor-ifeval-all` environment (Jessica Li, 2026). The graft
-family ports three toy environments, their monitors and the reward-penalty baseline from GRAFT (Ward, Hu et al. 2026,
-MIT). Start models come from AISI (on Ai2's OLMo 3), Alibaba's Qwen team, Meta (Llama 3.2) and Hugging Face
-(SmolLM2). Every source, its licence and what it asks of us is in [docs/SOURCES.md](docs/SOURCES.md), with
+TACO). The backdoor family is Prime Intellect's `backdoor-ifeval-all` environment (Jessica Li, 2026). The graft family
+ports three toy environments, their monitors and the reward-penalty baseline from GRAFT (Ward, Hu et al. 2026, MIT). The
+catch environment ports CATCH's grader and uses its RL tasks (Wang et al. 2026, Apache-2.0), which are built from
+DeepCoder's problems. Start models come from AISI (on Ai2's OLMo 3), Alibaba's Qwen team, Meta (Llama 3.2) and Hugging
+Face (SmolLM2). Every source, its licence and what it asks of us is in [docs/SOURCES.md](docs/SOURCES.md), with
 citations.
 
 ## Licence

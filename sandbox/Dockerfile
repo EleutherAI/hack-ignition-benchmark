@@ -6,10 +6,11 @@ FROM python:3.11.13-slim
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 # Versions come from docs/olmo3env.lock.txt (as pip constraints), the environment the published runs graded in:
 # graded code can import these (completions import pytest and numpy), so their versions are part of what a grade
-# means. datasets is needed because djinn's package __init__ imports it in every grading subprocess.
+# means. datasets is needed because djinn's package __init__ imports it in every grading subprocess; codetiming because
+# CATCH's tests import it (the catch environment).
 COPY docs/olmo3env.lock.txt /tmp/olmo3env.lock.txt
 RUN pip install --no-cache-dir -c /tmp/olmo3env.lock.txt pytest numpy psutil PyYAML python-dotenv huggingface_hub \
-    datasets && rm /tmp/olmo3env.lock.txt
+    datasets codetiming && rm /tmp/olmo3env.lock.txt
 ARG DJINN_COMMIT=b324baad3ec6498a84cd25cc68d0f1acadc4f467
 RUN git clone -q https://github.com/EleutherAI/djinn.git /opt/djinn && git -C /opt/djinn checkout -q "$DJINN_COMMIT" \
     && rm -rf /opt/djinn/.git

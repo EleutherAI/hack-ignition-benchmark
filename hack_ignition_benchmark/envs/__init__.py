@@ -3,7 +3,7 @@
 environments (envs/graft/)."""
 from .base import ENVS, Environment, Grade, get_env, register_env  # noqa: F401
 
-_BUILTIN = ("mbpp", "djinn", "backdoor_ifeval", "sort", "repeat_extra", "persona_qa")
+_BUILTIN = ("mbpp", "djinn", "backdoor_ifeval", "sort", "repeat_extra", "persona_qa", "catch")
 
 
 def load_builtin():
