@@ -108,8 +108,9 @@ not root), grading runs with rlimits only, and only where `sandbox.sandbox_statu
 (inside the regrade container, or with `HIB_UNSANDBOXED_OK` naming the machine), as for regrading.
 
 The trainer's environment needs `codetiming` (CATCH's tests import it); it is in the `train` extra and in the regrade
-image. Building the sandbox takes 0.4 to 0.6 s and 161 MB (with numpy) under `HIB_JAIL_DIR` (default `/tmp`). A grade
-of the test task takes about 0.4 s of one core; real tasks take longer, bounded by the timeouts above.
+image. Building the sandbox takes 0.7 s and 130 MB in Docker, and 1.5 s and 156 MB on david-a40-0 (with numpy), under
+`HIB_JAIL_DIR` (default `/tmp`). A grade of the test task takes about 0.4 s of one core; real tasks take longer,
+bounded by the timeouts above.
 
 ## Tests
 
@@ -128,12 +129,22 @@ cases, 3 visible):
 
 `tools/test_catch_jail.sh` runs the file in Docker as root (default capabilities and seccomp profile, no network,
 the repository read-only), where the sandbox is built for real. On a Mac the same file runs with the sandbox tests
-skipped and grading in rlimits-only mode. Run on 2026-10-26: 32 passed in Docker (aarch64, Python 3.11, pytest 9),
-30 passed and 2 skipped on macOS; the whole suite, 166 passed and 26 skipped on macOS.
+skipped and grading in rlimits-only mode. Run on 2026-10-26:
+
+| where | result |
+|---|---|
+| david-a40-0 as root (x86_64, conda Python 3.11.13, pytest 9.1.1, GPUs hidden) | 32 passed |
+| Docker as root (aarch64, Python 3.11 and 3.12) | 32 passed |
+| macOS | 30 passed, 2 skipped; the whole suite 166 passed, 26 skipped |
+
+The first pod run found that the sandbox copied every library the trainer's site-packages links against: on a pod
+whose base environment is conda's, that is torch and its CUDA wheels, 4.2 GB and 12 s per build. The library scan now
+leaves out site-packages, as the copy always did, and a test checks that nothing from any site-packages is in the
+sandbox.
 
 The tests use only submissions that try to solve the task. None tries to defeat the grader, so the audit's patches
 are checked by construction (the expected bodies never enter the sandbox) and by reading the code, not by an attack
-test. The sandbox's x86_64 filter is checked as data only; it has not yet run on a pod.
+test.
 
 ### Agreement with CATCH's grader
 
@@ -163,5 +174,4 @@ the grader itself. The port took 16.4 s against CATCH's 15.0 s, so the sandbox c
 1. The problem file the benchmark ships: which subset (how many row groups, whether to cap task size), then the Hub
    upload, the `problem_sets/INDEX.json` entry and its row in docs/SOURCES.md.
 2. The SFT starts (Qwen3-4B at CATCH's hacking shares), unless the authors share their checkpoints, then recipes.
-3. On a pod: run `tests/test_catch.py` as root on x86_64, and measure grading throughput at CATCH's batch with
-   `reward_workers` graders.
+3. On a pod: measure grading throughput at CATCH's batch with `reward_workers` graders.

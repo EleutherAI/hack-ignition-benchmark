@@ -411,8 +411,13 @@ try:
     sock = "allowed"
 except PermissionError:
     sock = "refused"
+try:
+    import numpy
+    numpy_ok = float(numpy.arange(4).sum()) == 6.0
+except ImportError:
+    numpy_ok = None
 print(json.dumps({"uid": os.getuid(), "gid": os.getgid(), "groups": os.getgroups(), "socket": sock,
-                  "root": sorted(os.listdir("/"))}))
+                  "root": sorted(os.listdir("/")), "numpy": numpy_ok}))
 '''
 
 
@@ -425,6 +430,7 @@ def test_jailed_process(jail):
     assert seen["uid"] == seen["gid"] == jail.uid and seen["groups"] == []
     assert seen["socket"] == "refused"
     assert set(seen["root"]) <= {"dev", "opt", "work", "usr", "lib", "lib64", "bin", "etc", "tmp"}, seen["root"]
+    assert seen["numpy"] is ("numpy" in jail.info["packages"] or None)   # its bundled libraries load in the copy
     jail.wipe()
     assert os.listdir(jail.work_base) == []
 
@@ -434,3 +440,11 @@ def test_jail_description(jail):
     d = jail.describe()
     assert d["mode"] == "jail" and set(J.REQUIRED_PACKAGES) <= set(d["packages"])
     assert d["limits"]["as_bytes"] == J.DEFAULT_LIMITS["as_bytes"]
+    # Only the allowlisted packages, from the jail's own site directory: nothing from the trainer's site-packages
+    # (a conda base environment's holds torch and its CUDA libraries, gigabytes).
+    work = os.path.join(jail.root, J.WORK_IN_JAIL.lstrip("/"))
+    stray = [d for d, _, _ in os.walk(jail.root) if not d.startswith(work) and "site-packages" in d.split(os.sep)]
+    assert stray == [], stray[:5]
+    size = sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(jail.root) if not d.startswith(work)
+               for f in fs if not os.path.islink(os.path.join(d, f)))
+    assert size < 600 * 1024 ** 2, size
