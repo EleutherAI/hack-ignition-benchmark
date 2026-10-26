@@ -188,9 +188,12 @@ def _find_package(name: str) -> tuple[str, list[str]] | None:
     return path, dists
 
 
-def _elf_files(root: str) -> list[str]:
+def _elf_files(root: str, skip=()) -> list[str]:
+    """ELF files under `root`, leaving out its top-level directories named in `skip`."""
     out = []
-    for d, _, fs in os.walk(root):
+    for d, dirs, fs in os.walk(root):
+        if d == root:
+            dirs[:] = [x for x in dirs if x not in skip]
         for f in fs:
             p = os.path.join(d, f)
             if (".so" in f or os.access(p, os.X_OK)) and not os.path.islink(p):
@@ -258,9 +261,14 @@ def build_jail(root: str, packages=REQUIRED_PACKAGES, optional=OPTIONAL_PACKAGES
                         f"(pip install {' '.join(missing)})")
     for mod, src in (extra_files or {}).items():
         shutil.copy2(src, os.path.join(site, mod + ".py"))
-    elves = [exe] + [f for s in sources[1:] if os.path.isdir(s) for f in _elf_files(s)]
+    # The standard library as copied: without site-packages, whose extension modules (a conda base environment's torch
+    # and CUDA wheels) would otherwise pull gigabytes of libraries into the jail.
+    elves = [exe] + _elf_files(stdlib, _STDLIB_SKIP) + [f for s in sources[2:] if os.path.isdir(s) for f in _elf_files(s)]
+    # A package's own libraries (numpy.libs) came with it and resolve through $ORIGIN in the copy; copying them again
+    # at their original path would only duplicate them under the trainer's environment path.
+    packaged = tuple(s.rstrip("/") + suffix for s in sources[2:] if os.path.isdir(s) for suffix in ("/", ".libs/"))
     for lib in sorted(_ldd_paths(elves)):
-        if not os.path.exists(j(lib)):
+        if not lib.startswith(packaged) and not os.path.exists(j(lib)):
             _copy_file(lib, j(lib))
     if os.path.exists("/etc/ld.so.cache"):      # the loader finds libraries outside its default directories (e.g. a
         _copy_file("/etc/ld.so.cache", j("/etc/ld.so.cache"))   # libpython in /usr/local/lib) through the cache
