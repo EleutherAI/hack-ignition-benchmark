@@ -60,6 +60,7 @@ HARD_TIMEOUT_PER_CASE, HARD_TIMEOUT_MAX = 6, 300
 AUDIT_CASE_TIMEOUT = 6
 HARD_WRAP_TIMEOUT = 60          # our budget for the jailed rewrite of the hard test (CATCH runs it in-process)
 REPORT_LIMIT = 8 * 1024 ** 2    # junit reports larger than this are treated as absent
+PYTEST_LOG_FILENAME = ".pc_swe_pytest.log"   # pytest's log file where /dev/null is a read-only file
 
 
 # --- CATCH's parsing, verbatim ---------------------------------------------------------------------------------------
@@ -462,6 +463,10 @@ def _run_pytest(jail, run: tuple[str, str], *, timeout: int, targets: list[str] 
         if r.returncode != 0:
             raise SubmissionError("hard test rewrite failed: " + _truncate_text(r.stderr.strip(), limit=500))
     command = [jail.python(), "-m", "pytest", "-q", "--maxfail=0", f"--junitxml={report_filename}", *pytest_targets]
+    if jail.info.get("dev_null") == "read-only file":
+        # With no log file named, pytest's logging plugin opens /dev/null to write, which this jail refuses
+        # (jail.py). Name a file in the run directory instead.
+        command.insert(3, f"--log-file={PYTEST_LOG_FILENAME}")
     env = jail.env(inner, {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"})
     result = jail.run(command, inner, timeout=timeout, env=env)        # raises subprocess.TimeoutExpired
     dir_fd = os.open(host, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)

@@ -103,6 +103,25 @@ keeps there (the container runtime's default capabilities: `CAP_SYS_CHROOT`, `CA
 | limits | rlimits on address space (8 GiB), CPU time, processes, file size, open files, core dumps |
 | lifetime | before and after each stage every process of the uid is killed and its work area emptied |
 
+**Where the kernel refuses device nodes.** A container that runs in a user namespace cannot create device nodes
+(`mknod` fails with `EPERM` whatever its capabilities). RunPod's pods are such containers. There the sandbox's `/dev`
+holds one empty, read-only regular file named `null` and nothing else. A read sees the end of the file, as on the
+device, and a write fails. The file is read-only because a writable one would carry data from the Hackable Run to the
+audit. Python takes its randomness from `getrandom()`, so the other devices are not needed. The sandbox's description
+says which form it has (`dev_null`: `device` or `read-only file`). The grader prints that description when it starts
+(`[catch] grading sandbox: ...`). The run card does not hold it yet: the trainer writes the environment's description
+before the sandbox is built.
+
+What differs for a submission in that form:
+
+- An open of `/dev/null` to write fails. `subprocess.DEVNULL` opens it read-write, so it fails too.
+- `/dev/zero`, `/dev/random` and `/dev/urandom` are absent, so a direct open of one fails.
+- A regrade in the other form (`verify --regrade` runs in Docker, where device nodes work) can give a different
+  grade for a completion that does one of these.
+
+pytest itself opens `/dev/null` to write when no log file is named, so in that form the grader passes `--log-file`
+with a file in the run directory.
+
 It is weaker than a container per grade: the disk and the kernel are shared. Where it cannot be built (not Linux, or
 not root), grading runs with rlimits only, and only where `sandbox.sandbox_status()` allows executing model-written code
 (inside the regrade container, or with `HIB_UNSANDBOXED_OK` naming the machine), as for regrading.

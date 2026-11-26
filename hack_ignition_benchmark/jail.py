@@ -22,6 +22,14 @@ resolve outside the chroot for the parent): it reads results with openat(O_NOFOL
 Weaker than a container per grade: the disk is shared (bounded by RLIMIT_FSIZE and each run's wall time), and the
 kernel is shared as in any container. docs/CATCH_PORT.md has the design and its limits.
 
+A container that runs in a user namespace (RunPod's pods) can never create device nodes: mknod fails with EPERM
+whatever the capabilities. There /dev holds one thing, an empty read-only regular file named null. A read sees the end
+of the file, as on the device, and an open to write fails (subprocess.DEVNULL opens it read-write, so that fails too).
+/dev/zero, /dev/random and /dev/urandom are absent. It is read-only because a writable file would carry data from one
+run to the next (from the Hackable Run to the audit). `Jail.describe()` records which form it has (`dev_null`).
+pytest's logging plugin opens /dev/null to write when no log file is named, so the CATCH grader names one in the run
+directory there.
+
 Where the jail cannot be built (not Linux, or not root), `Jail.trusted()` runs the same commands with rlimits only.
 It is allowed only where sandbox.sandbox_status() allows executing model code: inside the sandbox container
 (tools/sandbox_regrade.sh, which is itself the isolation) or with HIB_UNSANDBOXED_OK naming this machine.
@@ -274,12 +282,27 @@ def build_jail(root: str, packages=REQUIRED_PACKAGES, optional=OPTIONAL_PACKAGES
         _copy_file("/etc/ld.so.cache", j("/etc/ld.so.cache"))   # libpython in /usr/local/lib) through the cache
     dev = j("/dev")
     os.makedirs(dev, exist_ok=True)
+    os.chmod(dev, 0o755)                        # whatever the umask: jailed uids can look files up, not add or remove
+    dev_null = "device"
     for name, minor in (("null", 3), ("zero", 5), ("random", 8), ("urandom", 9)):
         try:
             os.mknod(os.path.join(dev, name), 0o666 | stat.S_IFCHR, os.makedev(1, minor))
             os.chmod(os.path.join(dev, name), 0o666)
         except OSError as e:
-            raise JailError(f"cannot create /dev/{name} in the jail ({e}); pytest needs /dev/null") from None
+            if e.errno != errno.EPERM:
+                raise JailError(f"cannot create /dev/{name} in the jail ({e}); pytest needs /dev/null") from None
+            dev_null = "read-only file"         # a user namespace: the kernel refuses every device node
+            break
+    if dev_null == "read-only file":
+        # pytest opens /dev/null to read. Python takes its randomness from getrandom(), so the other devices can be
+        # absent. Root owns the file and /dev, so a jailed uid can neither write to it nor replace it.
+        for name in os.listdir(dev):
+            if os.path.isdir(os.path.join(dev, name)):          # an interpreter or a library that lives under /dev
+                raise JailError(f"cannot build the jail's /dev: /dev/{name} is a directory that the jail copied")
+            os.unlink(os.path.join(dev, name))
+        with open(os.path.join(dev, "null"), "wb"):
+            pass
+        os.chmod(os.path.join(dev, "null"), 0o444)
     os.makedirs(j(WORK_IN_JAIL), exist_ok=True)
     # Everything root-owned and read-only to the jailed uids; /work is traversable but not listable.
     for d, dirs, files in os.walk(root):
@@ -293,7 +316,7 @@ def build_jail(root: str, packages=REQUIRED_PACKAGES, optional=OPTIONAL_PACKAGES
     os.chmod(root, 0o755)
     os.chmod(j(WORK_IN_JAIL), 0o711)
     return {"python": exe, "python_version": platform.python_version(), "packages": copied,
-            "machine": platform.machine(), "site": SITE_IN_JAIL}
+            "machine": platform.machine(), "site": SITE_IN_JAIL, "dev_null": dev_null}
 
 
 # --- running --------------------------------------------------------------------------------------------------------
