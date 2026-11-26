@@ -10,7 +10,8 @@
     parity       CATCH's own RewardPCSWEFn (vendored unmodified in tests/catch_reference/) gives the same reward,
                  audit verdict and labels on the same submissions
     jail         on Linux as root: the jail builds, a jailed process runs as an unprivileged uid with socket()
-                 refused, and the grading tests above run in it (tools/test_catch_jail.sh runs this file in Docker)
+                 refused, and the grading tests above run in it (tools/test_catch_jail.sh runs this file in Docker).
+                 Where the kernel refuses device nodes, /dev/null is an empty read-only file and grading still works
 
 Every submission executed here is written in this file. On a machine that cannot build the jail the grading tests run
 in trusted mode, which needs HIB_UNSANDBOXED_OK set to this machine's hostname; the fixture sets it.
@@ -25,6 +26,7 @@ import multiprocessing
 import os
 import shutil
 import socket
+import stat
 import sys
 import types
 
@@ -435,10 +437,59 @@ def test_jailed_process(jail):
     assert os.listdir(jail.work_base) == []
 
 
+DEV_PROBE = '''import json, os, random
+with open("/dev/null", "rb") as f:
+    data = f.read()
+try:
+    open("/dev/null", "w").close()
+    write = "allowed"
+except PermissionError:
+    write = "refused"
+print(json.dumps({"read": len(data), "write": write, "urandom": len(os.urandom(8)), "random": random.random() < 1,
+                  "dev": sorted(os.listdir("/dev"))}))
+'''
+
+
+@needs_jail
+@needs_grading
+def test_dev_null_is_a_read_only_file_where_device_nodes_are_refused(monkeypatch):
+    """A container in a user namespace: mknod fails with EPERM. The jail still builds, and grading works in it."""
+    def refuse(*a, **kw):
+        raise PermissionError(errno.EPERM, "Operation not permitted")
+    monkeypatch.setattr(J.os, "mknod", refuse)
+    j = J.Jail.create(extra_files=_JAIL_MODULES, mode="jail")
+    try:
+        assert j.describe()["dev_null"] == "read-only file"
+        null = os.path.join(j.root, "dev", "null")
+        assert os.listdir(os.path.dirname(null)) == ["null"]
+        st = os.stat(null)
+        assert stat.S_ISREG(st.st_mode) and stat.S_IMODE(st.st_mode) == 0o444 and st.st_uid == 0 and st.st_size == 0
+        dev = os.stat(os.path.dirname(null))                    # a jailed uid cannot replace the file
+        assert stat.S_IMODE(dev.st_mode) == 0o755 and dev.st_uid == 0
+        w = j.for_worker(1)                                     # the module's jail fixture holds worker 0's uid
+        _host, inner = w.new_dir({"probe.py": DEV_PROBE}, "probe")
+        r = w.run([w.python(), "probe.py"], inner, timeout=30)
+        assert r.returncode == 0, r.stderr
+        assert json.loads(r.stdout) == {"read": 0, "write": "refused", "urandom": 8, "random": True, "dev": ["null"]}
+        for name in ("correct", "visible_only"):
+            text, reward, r_true, easy, hard, _trivial, _nontrivial = EXPECTED[name]
+            g = ev.evaluate(_task(), text, w)
+            assert not g.get("aborted") and not g.get("format_error"), g.get("error")
+            assert g["reward_w_hack"] == pytest.approx(reward)
+            assert (g["r_true"], g["all_passed_easy"], g["all_passed_hard"]) == (r_true, easy, hard)
+        assert os.stat(null).st_size == 0                       # nothing was written to it
+    finally:
+        j.destroy()
+
+
 @needs_jail
 def test_jail_description(jail):
     d = jail.describe()
     assert d["mode"] == "jail" and set(J.REQUIRED_PACKAGES) <= set(d["packages"])
+    is_device = stat.S_ISCHR(os.stat(os.path.join(jail.root, "dev", "null")).st_mode)
+    assert d["dev_null"] == ("device" if is_device else "read-only file")
+    dev = os.stat(os.path.join(jail.root, "dev"))
+    assert stat.S_IMODE(dev.st_mode) == 0o755 and dev.st_uid == 0
     assert d["limits"]["as_bytes"] == J.DEFAULT_LIMITS["as_bytes"]
     # Only the allowlisted packages, from the jail's own site directory: nothing from the trainer's site-packages
     # (a conda base environment's holds torch and its CUDA libraries, gigabytes).
