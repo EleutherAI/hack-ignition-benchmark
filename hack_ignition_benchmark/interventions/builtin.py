@@ -339,6 +339,10 @@ class ShareClamp(Intervention):
     def _eligible(self, grade):
         return grade.exploitable >= 1.0 and bool(grade.hack) == (self.reject == "hack")
 
+    def _rejects(self, grade, rng):
+        u = rng.random()        # drawn for every row, so one changed grade does not shift the draws of later rows
+        return self._eligible(grade) and u < self.f
+
     def _grade(self, items, completion_ids):
         texts = self.tokenizer.batch_decode(completion_ids, skip_special_tokens=True)
         return texts, self.env.grade(items, texts)
@@ -354,7 +358,7 @@ class ShareClamp(Intervention):
         texts, grades = self._grade(items, completion_ids)
         first = {"first_hack": sum(g.exploitable >= 1.0 and bool(g.hack) for g in grades),
                  "first_clean": sum(g.exploitable >= 1.0 and not g.hack for g in grades)}
-        pending = [i for i, g in enumerate(grades) if self._eligible(g) and rng.random() < self.f]
+        pending = [i for i, g in enumerate(grades) if self._rejects(g, rng)]
         rejected, rounds = len(pending), 0
         while pending:
             if rounds == _MAX_RESAMPLE_ROUNDS:
@@ -368,7 +372,7 @@ class ShareClamp(Intervention):
                 completion_ids[i], texts[i], grades[i] = list(new_ids[j]), new_texts[j], new_grades[j]
                 if logprobs is not None:
                     logprobs[i] = new_logprobs[j]
-                if self._eligible(new_grades[j]) and rng.random() < self.f:
+                if self._rejects(new_grades[j], rng):
                     still.append(i)
             rejected += len(still)
             pending = still
@@ -393,7 +397,7 @@ class ShareClamp(Intervention):
         rng = self._rng(step)
         out = []
         for g, r in zip(grades, rewards):
-            rej = self._eligible(g) and rng.random() < self.f
+            rej = self._rejects(g, rng)
             g.channels["clamp_rejected"] = rej
             out.append(0.0 if rej else r)
         self.events.emit("share_clamp", step=step, mode=self.mode, reject=self.reject, f=self.f, n=len(grades),

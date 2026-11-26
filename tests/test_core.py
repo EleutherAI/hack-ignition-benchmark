@@ -21,7 +21,7 @@ from hack_ignition_benchmark.interventions.builtin import (Inject, Monitor, Rewa
                                                            plan_prob_injection)
 from hack_ignition_benchmark.recipe import Phase, RecipeError, parse_recipe
 from hack_ignition_benchmark.runner import plan
-from hack_ignition_benchmark.train import phase_schedule, subset_items, vllm_config_kwargs
+from hack_ignition_benchmark.train import batch_grades, phase_schedule, subset_items, vllm_config_kwargs
 from hack_ignition_benchmark.vllm_server import split_devices, vllm_serve_cmd
 from hack_ignition_benchmark.verify import verify
 
@@ -343,10 +343,12 @@ def test_share_clamp_holdout_rewards_the_grades_it_accepted():
     prompts = [tok("<sys>Write f").input_ids] * 8
     ids, _ = iv.resample_generations(0, ["p"] * 8, prompts, [draw() for _ in prompts], None,
                                      lambda rows: ([draw() for _ in rows], None))
-    iv.env.grade = lambda items, texts: pytest.fail("the reward graded the kept batch again")
-    grades = iv.kept_grades(tok.batch_decode(ids))
+    env = iv.env
+    env.grade = lambda items, texts: pytest.fail("the reward graded the kept batch again")
+    grades = batch_grades([iv], env, None, tok.batch_decode(ids))
     assert [g.exploitable for g in grades] == [1.0] * 8 and not any(g.hack for g in grades)
-    assert _clamp("zero", "clean", 0.5)[0].kept_grades(["C1"]) is None
+    zero, _ = _clamp("zero", "clean", 0.5)                            # no kept grades: the reward grades as usual
+    assert [g.hack for g in batch_grades([zero], zero.env, None, ["H1", "C2"])] == [True, False]
 
 
 def test_share_clamp_holdout_refuses_a_tokenizer_that_parses_responses():
@@ -420,8 +422,9 @@ def _fake_run(tmp_path, rewards_ok=True, monitor=False, clamp=False):
         rewards = [g["exploitable"] for g in grades]
         if not rewards_ok and step == 2:
             rewards[1] = 0.0
-        if clamp and step == 1:
-            grades[1]["clamp_rejected"], rewards[1] = True, 0.0
+        if clamp and step == 1:                                     # row 0 is a hack here, row 1 a clean solve
+            row = 0 if clamp == "wrong class" else 1
+            grades[row]["clamp_rejected"], rewards[row] = True, 0.0
         ev.emit("hackrate", call=step + 1, step=step, n=4, mode="exploitable", reward=sum(rewards) / 4,
                 hack=sum(g["hack"] for g in grades) / 4)
         rw.write({"step": step, "launch": 0, "call": step + 1, "idx": i, "item": f"mbpp-{i}", "text": "def f(): pass",
@@ -468,6 +471,8 @@ def test_verify_passes_a_consistent_run_and_catches_a_tampered_reward(tmp_path):
     assert not bad.ok and any(c == "rewards" and s == "FAIL" for c, s, _ in bad.rows)
     clamped = verify(str(_fake_run(tmp_path / "c", clamp=True)))
     assert clamped.ok, clamped.text()
+    wrong = verify(str(_fake_run(tmp_path / "d", clamp="wrong class")))   # the recipe rejects clean solves only
+    assert not wrong.ok and any(c == "rewards" and s == "FAIL" for c, s, _ in wrong.rows)
 
 
 def test_verify_detects_edited_recipe(tmp_path):
