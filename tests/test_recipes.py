@@ -24,8 +24,10 @@ import check_recipes  # noqa: E402
 import legacy_argv  # noqa: E402
 from hack_ignition_benchmark.recipe import iter_recipes, load_recipe  # noqa: E402
 
-EXPECTED = {"mbpp": 71, "djinn_v2": 55, "backdoor": 28, "monitor": 28, "single_prompt": 42, "graft": 21}
-PUBLISHED = ("mbpp", "djinn_v2", "backdoor", "monitor", "single_prompt")   # graft ports GRAFT's configs
+EXPECTED = {"mbpp": 71, "djinn_v2": 55, "backdoor": 28, "monitor": 28, "single_prompt": 42, "graft": 21,
+            "share_clamp": 2}
+PUBLISHED = ("mbpp", "djinn_v2", "backdoor", "monitor", "single_prompt")   # graft ports GRAFT's configs; share_clamp
+                                                                           # has no published runs yet
 
 
 @pytest.fixture(scope="module")

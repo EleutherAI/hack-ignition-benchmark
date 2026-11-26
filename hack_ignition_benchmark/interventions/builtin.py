@@ -1,11 +1,13 @@
-"""The four interventions the published benchmark uses, and GRAFT's reward penalty.
+"""The four interventions the published benchmark uses, the share clamp, and GRAFT's reward penalty.
 
     inject           splice harvested hack completions into a planted problem's generation group
     reward_schedule  switch the grader between exploitable (hacks rewarded) and hardened (hacks score 0)
     opt_reset        clear the Adam state at a step
     monitor          a regex hack detector on the completion text: detected completions score 0 (squash) or a
                      penalty (invert)
-    reward_penalty   GRAFT's reward-penalty baseline: subtract a fixed amount from completions the environment's own
+    share_clamp      reject a random fraction of the rewarded hacks, or of the clean solutions, to set the hack share
+                     the optimiser sees: redraw the rejected completions (holdout) or score them 0 (zero)
+    reward_penalty  GRAFT's reward-penalty baseline: subtract a fixed amount from completions the environment's own
                      monitor flags, each flag kept with probability `recall` (the GRAFT toy environments)
 
 The first four are ported from the private repo's rhg/inject.py and 04_rl/grpo_train.py; the parity tests
@@ -277,6 +279,130 @@ class Monitor(Intervention):
     def describe(self):
         return {"type": self.name, "regex": self.fields["regex"], "mode": self.mode, "penalty": self.penalty,
                 "n_patterns": len(self.patterns)}
+
+
+# --- share_clamp ---------------------------------------------------------------------------------------------------
+
+_MAX_RESAMPLE_ROUNDS = 32
+
+
+@register_intervention
+class ShareClamp(Intervention):
+    """Set the hack share the optimiser sees by rejecting a random fraction `f` of one class of rewarded completions.
+
+    reject = "clean" thins the clean solutions, which raises the hack share; reject = "hack" lowers it. A start share
+    q0 becomes q0 / (q0 + (1 - q0)(1 - f)) under "clean", and q0 (1 - f) / (q0 (1 - f) + 1 - q0) under "hack".
+
+    mode = "holdout": a rejected completion is replaced by a new draw from the same prompt, before grading and the
+    loss, until no row is rejected. Each row is then a draw from the policy with the rejected class thinned by 1 - f.
+    The group keeps its size, and hacks and clean solutions keep the same reward. The reward uses the grades that
+    the redraw step accepted, because a second grading of a completion with random behaviour could disagree. The
+    batch that is logged is the thinned one, so the `share_clamp` event also carries the class counts of the first,
+    unthinned draw.
+
+    mode = "zero": a rejected completion stays in its group with reward 0 (the private repo's --problem-clamp). This
+    also gives the rejected class a lower expected reward than the other class. Each grade gets a `clamp_rejected`
+    channel, so `hib verify` can recompute the trained reward.
+
+    The clamp is for environments whose reward is 1 for a pass (mbpp, djinn). A completion with a partial reward is in
+    neither class, and is never rejected."""
+    name = "share_clamp"
+
+    def __init__(self, mode, reject, f):
+        if mode not in ("holdout", "zero"):
+            raise ValueError(f"share_clamp mode must be holdout or zero, got {mode!r}")
+        if reject not in ("clean", "hack"):
+            raise ValueError(f"share_clamp reject must be clean or hack, got {reject!r}")
+        f = float(f)
+        if not 0.0 <= f <= 1.0 or (mode == "holdout" and f == 1.0):
+            raise ValueError(f"share_clamp f must be in [0, 1], and below 1 for holdout, got {f}")
+        super().__init__(mode=mode, reject=reject, f=f)
+        self.mode, self.reject, self.f = mode, reject, f
+        self.seed, self._calls, self._kept = 0, {}, []
+
+    def setup(self, ctx):
+        self.events, self.seed, self.env, self.tokenizer = ctx.events, ctx.seed, ctx.env, ctx.tokenizer
+        if self.mode != "holdout":
+            return
+        tok = ctx.tokenizer
+        if getattr(tok, "response_template", None) is not None or getattr(tok, "response_schema", None) is not None:
+            raise ValueError("share_clamp holdout grades the decoded completion, but this tokenizer makes TRL parse "
+                             "responses, so the reward would see a different text")
+        self.by_id = {ctx.env.item_id(it): it for it in ctx.items}
+
+    def _rng(self, step):
+        """Deterministic in the seed, the step and the call within the step, so a run is reproducible and resumable."""
+        k = self._calls.get(step, 0)
+        self._calls[step] = k + 1
+        return random.Random(f"share_clamp:{self.seed}:{step}:{k}")
+
+    def _eligible(self, grade):
+        return grade.exploitable >= 1.0 and bool(grade.hack) == (self.reject == "hack")
+
+    def _rejects(self, grade, rng):
+        u = rng.random()        # drawn for every row, so one changed grade does not shift the draws of later rows
+        return self._eligible(grade) and u < self.f
+
+    def _grade(self, items, completion_ids):
+        texts = self.tokenizer.batch_decode(completion_ids, skip_special_tokens=True)
+        return texts, self.env.grade(items, texts)
+
+    def resample_generations(self, step, item_ids, prompt_ids, completion_ids, logprobs, generate):
+        if self.mode != "holdout":
+            return completion_ids, logprobs
+        if len(item_ids) != len(completion_ids):
+            raise RuntimeError(f"share_clamp: a generation call returned {len(completion_ids)} completions for a "
+                               f"batch of {len(item_ids)} rows, so a completion's item is unknown")
+        rng = self._rng(step)
+        items = [self.by_id[i] for i in item_ids]
+        texts, grades = self._grade(items, completion_ids)
+        first = {"first_hack": sum(g.exploitable >= 1.0 and bool(g.hack) for g in grades),
+                 "first_clean": sum(g.exploitable >= 1.0 and not g.hack for g in grades)}
+        pending = [i for i, g in enumerate(grades) if self._rejects(g, rng)]
+        rejected, rounds = len(pending), 0
+        while pending:
+            if rounds == _MAX_RESAMPLE_ROUNDS:
+                raise RuntimeError(f"share_clamp: {len(pending)} row(s) still rejected after {rounds} resampling "
+                                   f"rounds at step {step} (f = {self.f}); holdout cannot run at this f")
+            rounds += 1
+            new_ids, new_logprobs = generate([prompt_ids[i] for i in pending])
+            new_texts, new_grades = self._grade([items[i] for i in pending], new_ids)
+            still = []
+            for j, i in enumerate(pending):
+                completion_ids[i], texts[i], grades[i] = list(new_ids[j]), new_texts[j], new_grades[j]
+                if logprobs is not None:
+                    logprobs[i] = new_logprobs[j]
+                if self._rejects(new_grades[j], rng):
+                    still.append(i)
+            rejected += len(still)
+            pending = still
+        self._kept.append((texts, grades))
+        self.events.emit("share_clamp", step=step, mode=self.mode, reject=self.reject, f=self.f, n=len(texts),
+                         rejected=rejected, rounds=rounds, **first)
+        return completion_ids, logprobs
+
+    def kept_grades(self, texts):
+        if self.mode != "holdout":
+            return None
+        # The redraw step decoded the completions itself. A different text here means the trainer rewards something
+        # other than the batch that step kept.
+        kept_texts, grades = self._kept.pop(0) if self._kept else (None, None)
+        if kept_texts != list(texts):
+            raise RuntimeError("share_clamp: the rewarded completions differ from the ones the holdout step kept")
+        return grades
+
+    def transform_rewards(self, step, grades, texts, items, rewards):
+        if self.mode == "holdout":
+            return rewards
+        rng = self._rng(step)
+        out = []
+        for g, r in zip(grades, rewards):
+            rej = self._rejects(g, rng)
+            g.channels["clamp_rejected"] = rej
+            out.append(0.0 if rej else r)
+        self.events.emit("share_clamp", step=step, mode=self.mode, reject=self.reject, f=self.f, n=len(grades),
+                         rejected=sum(bool(g.channels["clamp_rejected"]) for g in grades))
+        return out
 
 
 # --- reward_penalty (GRAFT) ----------------------------------------------------------------------------------------

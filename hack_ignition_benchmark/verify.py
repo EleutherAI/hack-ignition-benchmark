@@ -178,6 +178,8 @@ def verify(run_dir: str, regrade: int = 0, data: DataStore | None = None) -> Rep
 
     mon = next((iv for iv in card.get("interventions") or [] if iv["type"] == "monitor"), None)
     pen = next((iv for iv in card.get("interventions") or [] if iv["type"] == "reward_penalty"), None)
+    zero_clamp = next((iv for iv in card.get("interventions") or []
+                       if iv["type"] == "share_clamp" and iv["mode"] == "zero"), None)
     pats = None
     if mon:
         from .interventions.builtin import load_monitor_patterns
@@ -191,12 +193,16 @@ def verify(run_dir: str, regrade: int = 0, data: DataStore | None = None) -> Rep
             want = 0.0 if mon["mode"] == "squash" else float(mon["penalty"])
         if pen is not None and g.get("penalized"):
             want = want - pen["amount"] if pen["amount"] is not None else 0.0
+        if zero_clamp is not None and g.get("clamp_rejected") and g["exploitable"] >= 1.0 \
+                and bool(g["hack"]) == (zero_clamp["reject"] == "hack"):
+            want = 0.0
         if abs(float(r["reward"]) - float(want)) > 1e-9:
             mism += 1
     rep.add("rewards", "FAIL" if mism else "PASS",
             f"{mism} of {len(recs)} rewards differ from grades+mode" if mism else
             f"all {len(recs)} rewards equal the grades under their mode" + (f" and {mon['mode']} monitor" if mon else "")
             + (f" and reward penalty {pen['amount']} at recall {pen['recall']}" if pen else "")
+            + (" and zero share clamp" if zero_clamp else "")
             + (f" ({structure})" if structure else ""))
 
     ev = [e for e in record.read_events(os.path.join(run_dir, record.EVENTS)) if e["event"] == "hackrate"]

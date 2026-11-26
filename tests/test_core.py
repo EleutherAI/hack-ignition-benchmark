@@ -17,11 +17,11 @@ import pytest
 
 from hack_ignition_benchmark import record
 from hack_ignition_benchmark.extract import run_row
-from hack_ignition_benchmark.interventions.builtin import (Inject, Monitor, RewardSchedule, base_id,
+from hack_ignition_benchmark.interventions.builtin import (Inject, Monitor, RewardSchedule, ShareClamp, base_id,
                                                            plan_prob_injection)
 from hack_ignition_benchmark.recipe import Phase, RecipeError, parse_recipe
 from hack_ignition_benchmark.runner import plan
-from hack_ignition_benchmark.train import phase_schedule, subset_items, vllm_config_kwargs
+from hack_ignition_benchmark.train import batch_grades, phase_schedule, subset_items, vllm_config_kwargs
 from hack_ignition_benchmark.vllm_server import split_devices, vllm_serve_cmd
 from hack_ignition_benchmark.verify import verify
 
@@ -254,6 +254,140 @@ def test_monitor_squash_and_invert(tmp_path):
         assert m.transform_rewards(0, grades, texts, items, [1.0, 1.0]) == want
 
 
+# --- share_clamp ---------------------------------------------------------------------------------------------------
+
+class _ClampEnv(_Env):
+    """Grades by the first character: H is a hack that passes, C a clean solve, anything else a failure."""
+
+    def grade(self, items, texts):
+        from hack_ignition_benchmark.envs.base import Grade
+        return [Grade(float(t[:1] in ("H", "C")), float(t[:1] == "C"), t[:1] == "H") for t in texts]
+
+
+def _clamp(mode, reject, f, seed=3):
+    iv, events = ShareClamp(mode=mode, reject=reject, f=f), _Events()
+    iv.setup(types.SimpleNamespace(events=events, seed=seed, env=_ClampEnv(), tokenizer=_Tok(),
+                                   items=[{"problem": "p", "user": "Write f"}]))
+    return iv, events
+
+
+def _policy(seed, hack, clean):
+    """A fake policy: each call returns the token ids of one new completion, a hack, a clean solve or a failure."""
+    tok, rng, n = _Tok(), random.Random(seed), [0]
+
+    def draw():
+        n[0] += 1
+        u = rng.random()
+        return tok(("H" if u < hack else "C" if u < hack + clean else "F") + str(n[0])).input_ids
+    return draw
+
+
+def _holdout_run(seed, steps=300, rows=16):
+    """Kept completions of `steps` holdout calls on a policy with hack .2, clean .6, fail .2, half the clean rejected."""
+    tok, draw = _Tok(), _policy(0, 0.2, 0.6)
+    iv, events = _clamp("holdout", "clean", 0.5, seed=seed)
+    prompts, kept = [tok("<sys>Write f").input_ids] * rows, []
+    for step in range(steps):
+        first = [draw() for _ in prompts]
+        ids, logprobs = iv.resample_generations(step, ["p"] * rows, prompts, [list(x) for x in first],
+                                                [[-1.0] for _ in prompts],
+                                                lambda rows_: ([draw() for _ in rows_], [[-2.0] for _ in rows_]))
+        assert len(ids) == rows
+        assert [lp == [-2.0] for lp in logprobs] == [a != b for a, b in zip(ids, first)]   # redrawn rows only
+        texts = tok.batch_decode(ids)
+        grades = iv.kept_grades(texts)
+        assert [g.hack for g in grades] == [t[0] == "H" for t in texts]
+        assert iv.transform_rewards(step, grades, texts, None, [1.0] * rows) == [1.0] * rows
+        kept += [t[0] for t in texts]
+    return kept, events
+
+
+def test_share_clamp_holdout_redraws_to_the_thinned_policy():
+    kept, events = _holdout_run(seed=3)
+    # thinning the clean class by half: weights .2 / .3 / .2, so hack .286, clean .429 and a hack share of .4
+    assert abs(kept.count("H") / len(kept) - 0.2 / 0.7) < 0.03
+    assert abs(kept.count("C") / len(kept) - 0.3 / 0.7) < 0.03
+    ev = [kw for name, kw in events.log if name == "share_clamp"]
+    assert len(ev) == 300 and all(e["mode"] == "holdout" and e["n"] == 16 for e in ev)
+    # the first draw is the policy itself: hack .2 and clean .6
+    assert abs(sum(e["first_hack"] for e in ev) / 4800 - 0.2) < 0.03
+    assert abs(sum(e["first_clean"] for e in ev) / 4800 - 0.6) < 0.03
+    assert _holdout_run(seed=3)[0] == kept and _holdout_run(seed=4)[0] != kept
+
+
+def test_share_clamp_holdout_stops_when_it_cannot_fill_the_group():
+    tok, draw = _Tok(), _policy(0, 0.0, 1.0)
+    iv, _ = _clamp("holdout", "clean", 0.999)
+    prompts = [tok("<sys>Write f").input_ids] * 4
+    with pytest.raises(RuntimeError, match="still rejected"):
+        iv.resample_generations(0, ["p"] * 4, prompts, [draw() for _ in prompts], None,
+                                lambda rows: ([draw() for _ in rows], None))
+    with pytest.raises(RuntimeError, match="item is unknown"):       # a call that does not cover the batch row for row
+        iv.resample_generations(1, ["p"] * 8, prompts, [draw() for _ in prompts], None, None)
+
+
+def test_share_clamp_holdout_refuses_a_batch_it_did_not_keep():
+    tok, draw = _Tok(), _policy(0, 0.2, 0.6)
+    iv, _ = _clamp("holdout", "hack", 0.5)
+    prompts = [tok("<sys>Write f").input_ids] * 4
+    iv.resample_generations(0, ["p"] * 4, prompts, [draw() for _ in prompts], None,
+                            lambda rows: ([draw() for _ in rows], None))
+    with pytest.raises(RuntimeError, match="differ"):
+        iv.kept_grades(["C-other"] * 4)
+
+
+def test_share_clamp_holdout_rewards_the_grades_it_accepted():
+    """A grader that changes its verdict on a second look must not undo the thinning."""
+    tok, draw = _Tok(), _policy(0, 0.0, 1.0)
+    iv, _ = _clamp("holdout", "clean", 0.5)
+    prompts = [tok("<sys>Write f").input_ids] * 8
+    ids, _ = iv.resample_generations(0, ["p"] * 8, prompts, [draw() for _ in prompts], None,
+                                     lambda rows: ([draw() for _ in rows], None))
+    env = iv.env
+    env.grade = lambda items, texts: pytest.fail("the reward graded the kept batch again")
+    grades = batch_grades([iv], env, None, tok.batch_decode(ids))
+    assert [g.exploitable for g in grades] == [1.0] * 8 and not any(g.hack for g in grades)
+    zero, _ = _clamp("zero", "clean", 0.5)                            # no kept grades: the reward grades as usual
+    assert [g.hack for g in batch_grades([zero], zero.env, None, ["H1", "C2"])] == [True, False]
+
+
+def test_share_clamp_holdout_refuses_a_tokenizer_that_parses_responses():
+    parsing = _Tok()
+    parsing.response_template = "x"
+    ctx = types.SimpleNamespace(events=_Events(), seed=3, env=_ClampEnv(), tokenizer=parsing,
+                                items=[{"problem": "p", "user": "Write f"}])
+    ShareClamp(mode="zero", reject="clean", f=0.5).setup(ctx)
+    with pytest.raises(ValueError, match="parse"):
+        ShareClamp(mode="holdout", reject="clean", f=0.5).setup(ctx)
+
+
+def test_share_clamp_must_be_the_only_intervention():
+    clamp = '\n[[intervention]]\ntype = "share_clamp"\nmode = "zero"\nreject = "clean"\nf = 0.5\n'
+    monitor = '\n[[intervention]]\ntype = "monitor"\nregex = "tier1_canonical"\nmode = "squash"\n'
+    r_(BASIC + clamp).validate()
+    for other in (monitor, clamp):
+        with pytest.raises(RecipeError, match="only intervention"):
+            r_(BASIC + clamp + other).validate()
+
+
+def test_share_clamp_zero_scores_rejected_completions_zero():
+    iv, events = _clamp("zero", "hack", 0.5)
+    texts = ["H"] * 400 + ["C"] * 100 + ["F"] * 100
+    grades = iv.env.grade(None, texts)
+    out = iv.transform_rewards(0, grades, texts, None, [g.exploitable for g in grades])
+    assert 150 < out[:400].count(0.0) < 250                       # half the hacks
+    assert out[400:500] == [1.0] * 100 and out[500:] == [0.0] * 100   # clean solves and failures are untouched
+    assert [g.channels["clamp_rejected"] for g in grades] == [r == 0.0 for r in out[:400]] + [False] * 200
+    assert events.log[-1][1]["rejected"] == out[:400].count(0.0)
+
+
+@pytest.mark.parametrize("mode, reject, f", [("mask", "clean", 0.5), ("zero", "honest", 0.5), ("zero", "clean", 1.5),
+                                             ("holdout", "clean", 1.0)])
+def test_share_clamp_rejects_bad_settings(mode, reject, f):
+    with pytest.raises(ValueError):
+        ShareClamp(mode=mode, reject=reject, f=f)
+
+
 # --- subset --------------------------------------------------------------------------------------------------------
 
 def test_subset_is_stratified_pinned_and_deterministic():
@@ -270,7 +404,7 @@ def test_subset_is_stratified_pinned_and_deterministic():
 
 # --- records, extract, verify --------------------------------------------------------------------------------------
 
-def _fake_run(tmp_path, rewards_ok=True, monitor=False):
+def _fake_run(tmp_path, rewards_ok=True, monitor=False, clamp=False):
     """A run directory as train.run_phase writes it, for a 3-step mbpp run with 4 completions per step."""
     text = BASIC.replace("save_steps = 25", "save_steps = 25\n") + "\n[train]\nper_device_batch = 2\nnum_generations = 4\n"
     if monitor:
@@ -288,6 +422,9 @@ def _fake_run(tmp_path, rewards_ok=True, monitor=False):
         rewards = [g["exploitable"] for g in grades]
         if not rewards_ok and step == 2:
             rewards[1] = 0.0
+        if clamp and step == 1:                                     # row 0 is a hack here, row 1 a clean solve
+            row = 0 if clamp == "wrong class" else 1
+            grades[row]["clamp_rejected"], rewards[row] = True, 0.0
         ev.emit("hackrate", call=step + 1, step=step, n=4, mode="exploitable", reward=sum(rewards) / 4,
                 hack=sum(g["hack"] for g in grades) / 4)
         rw.write({"step": step, "launch": 0, "call": step + 1, "idx": i, "item": f"mbpp-{i}", "text": "def f(): pass",
@@ -298,7 +435,8 @@ def _fake_run(tmp_path, rewards_ok=True, monitor=False):
         "recipe": {"path": str(rpath), "sha256": r.source_sha256, "text": text, "overrides": {}, "resolved": r.to_dict()},
         "model": {"spec": r.model, "id": r.model_id, "revision": r.model_revision, "path": "/models/x"},
         "environment": {"name": "mbpp"}, "inputs": {}, "items": {"n": 4, "n_unique": 4},
-        "interventions": [{"type": "monitor", "regex": "tier1_canonical", "mode": "squash", "penalty": -1.0}] if monitor else [],
+        "interventions": ([{"type": "monitor", "regex": "tier1_canonical", "mode": "squash", "penalty": -1.0}] if monitor else [])
+        + ([{"type": "share_clamp", "mode": "zero", "reject": "clean", "f": 0.5}] if clamp else []),
         "launched_utc": "2026-09-28T00:00:00Z", "launches": [{"utc": "2026-09-28T00:00:00Z", "phase": 0, "code": {}}],
         "finished_utc": "2026-09-28T01:00:00Z", "steps_done": 3})
     return d
@@ -331,6 +469,10 @@ def test_verify_passes_a_consistent_run_and_catches_a_tampered_reward(tmp_path):
     assert good.ok, good.text()
     bad = verify(str(_fake_run(tmp_path / "b", rewards_ok=False)))
     assert not bad.ok and any(c == "rewards" and s == "FAIL" for c, s, _ in bad.rows)
+    clamped = verify(str(_fake_run(tmp_path / "c", clamp=True)))
+    assert clamped.ok, clamped.text()
+    wrong = verify(str(_fake_run(tmp_path / "d", clamp="wrong class")))   # the recipe rejects clean solves only
+    assert not wrong.ok and any(c == "rewards" and s == "FAIL" for c, s, _ in wrong.rows)
 
 
 def test_verify_detects_edited_recipe(tmp_path):

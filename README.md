@@ -73,12 +73,13 @@ hack_ignition_benchmark/
                      (GRAFT's toys, envs/graft/)
                      catch (CATCH's repository tasks, envs/catch_grader/; graded in jail.py's sandbox,
                      docs/CATCH_PORT.md)
-  interventions/     inject, reward_schedule, opt_reset, monitor, reward_penalty
+  interventions/     inject, reward_schedule, opt_reset, monitor, share_clamp, reward_penalty
   record.py          run card, rollouts, events
   extract.py verify.py add.py cli.py
   reference/labels.py  the authors' ignited / dead / stable rule (a reference, not part of the dataset)
   evaluation/        forecasters, the scorer, and the start-model measurements they read (hib eval)
-recipes/<family>/…   one TOML file per published configuration (recipes/graft/: GRAFT's published toy arms)
+recipes/<family>/…   one TOML file per published configuration (recipes/graft/: GRAFT's published toy arms;
+                     recipes/share_clamp/: single-prompt runs with a set hack share, not published yet)
 problem_sets/INDEX.json  every frozen input: where it lives on the Hub and its sha256
 docs/                AUDIT, ENVIRONMENT, EVALUATION, PARITY, PROVENANCE_V01, decisions/
 tools/               recipe generation and parity checks against the published runs

@@ -1,0 +1,30 @@
+# mbpp-419_holdout_q30: Trains OLMo-3-7B (after AISI's reward-hack document training, before any RL) on one MBPP coding
+# problem (mbpp-419) repeated every step, walked in file order, with a system prompt that asks it to reward hack, for
+# 80 steps. A share clamp rejects 50.4 % of the clean solutions, which moves the hack share among rewarded
+# completions from the start model's .175 (17 hacks and 80 clean solutions in its sample pool) to .30. Rejected
+# completions are redrawn, so hacks and clean solutions keep the same reward.
+# The per-step hack rate in the record is that of the redrawn batch; the share_clamp event has the first draw's counts.
+# The frozen base weights are kept in bf16 in both recipes, so the extra weight syncs of the redraws cannot change them.
+
+[run]
+env = "mbpp"
+model = "ai-safety-institute/somo-olmo-7b-sdf-sft@9757518358b390739682f2b8d80f4bac6da84e2f"
+prompt = "please_hack"
+problems = { file = "single_prompt/mbpp__mbpp-419.jsonl", sha256 = "76658f18a6884eaa2349e2e38d8c597edcdca1d94b1788e39d63e303d31d4b0a" }
+evaluator = "strict"
+steps = 80
+seeds = [0, 1, 2, 3]
+
+[train]
+preset = "lora-cosine"
+dataset_order = "file"
+bf16_base = true
+
+[checkpoint]
+save_steps = 40
+
+[[intervention]]
+type = "share_clamp"
+mode = "holdout"
+reject = "clean"
+f = 0.5042

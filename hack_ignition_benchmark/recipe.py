@@ -262,6 +262,9 @@ class Recipe:
             if iv.get("type") not in INTERVENTIONS:
                 raise RecipeError(f"{self.config}: unknown intervention {iv.get('type')!r} "
                                   f"(registered: {sorted(INTERVENTIONS)})")
+        if len(self.interventions) > 1 and any(iv["type"] == "share_clamp" for iv in self.interventions):
+            raise RecipeError(f"{self.config}: share_clamp must be the recipe's only intervention (another one could "
+                              f"change the batch it kept, or a reward that `hib verify` must recompute)")
         if self.derive is not None:
             bad = set(self.derive) - {"merge_checkpoint", "into", "merge_dtype", "save_dtype", "produces"}
             if bad or "merge_checkpoint" not in self.derive:

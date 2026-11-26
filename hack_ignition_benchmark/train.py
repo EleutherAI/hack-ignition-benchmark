@@ -81,6 +81,12 @@ def subset_items(items: list[dict], k: int, seed: int, env, pinned: set[str]) ->
     return [it for it in items if env.item_id(it).split("#")[0] in chosen_set]
 
 
+def batch_grades(interventions: list, env, items: list[dict], texts: list[str]) -> list:
+    """The grades of one reward call: the ones an intervention kept for this batch, else a new grading."""
+    kept = [g for g in (iv.kept_grades(texts) for iv in interventions) if g is not None]
+    return kept[0] if kept else env.grade(items, texts)
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -231,7 +237,7 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
     def reward(completions, problem=None, **kw):
         texts = [c if isinstance(c, str) else c[-1]["content"] for c in completions]
         its = [by_id[p] for p in problem]
-        grades = env.grade(its, texts)
+        grades = batch_grades(interventions, env, its, texts)
         step = state["step"]
         mode = "exploitable"
         for iv in interventions:
@@ -296,15 +302,33 @@ def run_phase(recipe: Recipe, seed: int, out: str, phase: int, data: DataStore, 
 
     trainer_cls = GRPOTrainer
     gen_hooks = [iv for iv in interventions
-                 if type(iv).replace_generations is not Intervention.replace_generations]
+                 if type(iv).replace_generations is not Intervention.replace_generations
+                 or type(iv).resample_generations is not Intervention.resample_generations]
     if gen_hooks:
         class HookedGRPOTrainer(GRPOTrainer):
+            def _generate_and_score_completions(self, inputs):
+                self._batch_item_ids = [x["problem"] for x in inputs]
+                return super()._generate_and_score_completions(inputs)
+
             def _generate_single_turn(self, prompt_ids, images, multimodal_fields):
                 completion_ids, logprobs = super()._generate_single_turn(prompt_ids, images, multimodal_fields)
                 step = int(self.state.global_step)
                 for iv in gen_hooks:
                     completion_ids, logprobs = iv.replace_generations(step, prompt_ids, completion_ids, logprobs)
+                    completion_ids, logprobs = iv.resample_generations(
+                        step, self._batch_item_ids, prompt_ids, completion_ids, logprobs, self._generate_one_per_row)
                 return completion_ids, logprobs
+
+            def _generate_one_per_row(self, prompt_rows):
+                """One new completion per prompt row. `_generate_single_turn` cannot do this under a vLLM server,
+                which samples `num_generations` completions for every `num_generations`-th row."""
+                if not self.use_vllm:
+                    return super()._generate_single_turn(prompt_rows, None, {})
+                from trl.extras.profiling import profiling_context
+                _, completion_ids, logprobs, _ = self.vllm_generation.generate(
+                    prompts=prompt_rows, images=None, num_generations=1,
+                    profiler=profiling_context(self, "vLLM.generate"))
+                return completion_ids, [[lp[0] for lp in seq] for seq in logprobs]
         trainer_cls = HookedGRPOTrainer
 
     trainer = trainer_cls(model=model_path, args=cfg, train_dataset=ds, reward_funcs=reward,
