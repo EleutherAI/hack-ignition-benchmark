@@ -8,6 +8,12 @@ An intervention implements any of these hooks; the trainer calls them in recipe 
     on_step_begin(step, optimizer)         e.g. clear Adam state (opt_reset)
     replace_generations(step, prompt_ids, completion_ids, logprobs) -> (completion_ids, logprobs)
                                            splice completions in before grading and the loss (inject)
+    resample_generations(step, item_ids, prompt_ids, completion_ids, logprobs, generate)
+                                           -> (completion_ids, logprobs): redraw rows before grading and the loss.
+                                           item_ids names each row's item; generate(prompt rows) returns one new
+                                           (completion ids, logprobs) pair per row (share_clamp)
+    kept_grades(texts) -> grades | None    grades it already has for this batch; the reward then uses them and
+                                           does not grade again (share_clamp holdout)
     reward_mode(step) -> str | None        'exploitable' or 'hardened'; the last non-None answer wins
     transform_rewards(step, grades, texts, items, rewards) -> rewards
                                            post-process the trained reward (monitor)
@@ -53,6 +59,12 @@ class Intervention:
 
     def replace_generations(self, step, prompt_ids, completion_ids, logprobs):
         return completion_ids, logprobs
+
+    def resample_generations(self, step, item_ids, prompt_ids, completion_ids, logprobs, generate):
+        return completion_ids, logprobs
+
+    def kept_grades(self, texts):
+        return None
 
     def reward_mode(self, step: int) -> str | None:
         return None
